@@ -7,7 +7,7 @@ from patronstash.config import (
     Backfill,
     ConfigError,
     load_config,
-    normalize_creator_name,
+    validate_creator_name,
     write_template,
 )
 
@@ -24,11 +24,15 @@ BASE = 'download_dir = "/archive"\ncookies_file = "/c/cookies.txt"\n'
 # ── creator names ──────────────────────────────────────────────────
 
 
+def test_vanity_names_are_accepted():
+    assert validate_creator_name("somecreator") == "somecreator"
+    assert validate_creator_name("  somecreator  ") == "somecreator"
+    assert validate_creator_name("Some_Creator-2") == "Some_Creator-2"
+
+
 @pytest.mark.parametrize(
     "value",
     [
-        "somecreator",
-        "  somecreator  ",
         "https://www.patreon.com/somecreator",
         "https://patreon.com/somecreator/",
         "patreon.com/somecreator",
@@ -38,12 +42,9 @@ BASE = 'download_dir = "/archive"\ncookies_file = "/c/cookies.txt"\n'
         "http://www.patreon.com/somecreator#top",
     ],
 )
-def test_normalize_creator_name(value):
-    assert normalize_creator_name(value) == "somecreator"
-
-
-def test_normalize_keeps_case_and_symbols():
-    assert normalize_creator_name("Some_Creator-2") == "Some_Creator-2"
+def test_urls_are_rejected_with_the_vanity_name_to_use(value):
+    with pytest.raises(ValueError, match='use the vanity name "somecreator"'):
+        validate_creator_name(value)
 
 
 @pytest.mark.parametrize(
@@ -57,9 +58,9 @@ def test_normalize_keeps_case_and_symbols():
         "some creator",
     ],
 )
-def test_normalize_rejects_bad_names(value):
+def test_bad_names_are_rejected(value):
     with pytest.raises(ValueError):
-        normalize_creator_name(value)
+        validate_creator_name(value)
 
 
 # ── backfill ───────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ name = "somecreator"
 backfill = "all"
 
 [[creator]]
-name = "https://www.patreon.com/othercreator"
+name = "othercreator"
 backfill = 2024-01-01
 """,
         )
@@ -186,14 +187,14 @@ name = "dup"
 backfill = "all"
 
 [[creator]]
-name = "https://www.patreon.com/dup"
+name = "DUP"
 backfill = "none"
 """,
         )
     )
     assert len(cfg.creators) == 1
     assert cfg.creators[0].backfill == Backfill("all")
-    assert any("dup" in w for w in cfg.warnings)
+    assert any("dup" in w.lower() for w in cfg.warnings)
 
 
 def test_unknown_keys_warn(tmp_path):
@@ -337,3 +338,12 @@ def test_template_is_not_overwritten(tmp_path):
     with pytest.raises(FileExistsError):
         write_template(path)
     assert path.read_text() == BASE
+
+
+def test_url_as_creator_name_is_a_config_error(tmp_path):
+    text = (
+        BASE
+        + '[[creator]]\nname = "https://www.patreon.com/c/artist"\nbackfill = "all"\n'
+    )
+    with pytest.raises(ConfigError, match='creator #1: use the vanity name "artist"'):
+        load_config(write(tmp_path, text))

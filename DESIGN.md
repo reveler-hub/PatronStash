@@ -90,8 +90,9 @@ download_dir = "/mnt/archive/patreon"
 
 # Login: set one or both. If both are set, cookies_file wins.
 cookies_file = "~/.config/patronstash/cookies.txt"
-# cookies_from_browser = "firefox"      # desktop only, not headless boxes
-# browser_profile = "default-release"   # optional
+# cookies_from_browser = "chrome"       # desktop only, not headless boxes
+# browser_profile = "Profile 1"         # optional; Chrome: "Default", "Profile 1"…
+#                                       # (see chrome://version); Firefox: "default-release"
 
 # Optional notifications (any Apprise URL: ntfy, Discord, Telegram, email…)
 # notify_url = "ntfy://ntfy.sh/my-topic"
@@ -100,11 +101,11 @@ cookies_file = "~/.config/patronstash/cookies.txt"
 # data_dir = "~/.local/share/patronstash"
 
 [[creator]]
-name = "somecreator"          # vanity name or full URL
+name = "somecreator"          # vanity name: patreon.com/somecreator
 backfill = "all"
 
 [[creator]]
-name = "https://www.patreon.com/othercreator"
+name = "othercreator"
 backfill = "2024-01-01"
 
 # Passed straight to gallery-dl; overrides PatronStash's defaults.
@@ -114,7 +115,8 @@ backfill = "2024-01-01"
 
 Rules for the config:
 
-- **Creators:** the user edits the file to add them; there is no `add` command. A `name` can be a vanity name or a URL, and PatronStash normalises either form to the vanity name.
+- **Creators:** the user edits the file to add them; there is no `add` command. A `name` must be the creator's **vanity name** (decided 2026-09-26). A URL is rejected with an error that names the vanity name to use instead.
+  - *Why:* a list of bare names is easier to read than a list of URLs that differ only at the end.
 - **Missing `backfill`:** that creator is skipped. PatronStash logs a warning and sends a notification that names the creator, and every other creator still runs.
 - **The `[gallery-dl]` passthrough** can override anything except these reserved keys, which PatronStash depends on:
   - `archive`

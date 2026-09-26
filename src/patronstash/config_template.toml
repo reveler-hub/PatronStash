@@ -25,8 +25,9 @@
 
 # Login: set one or both. If both are set, cookies_file wins.
 # cookies_file = "~/.config/patronstash/cookies.txt"
-# cookies_from_browser = "firefox"      # desktop only, not headless boxes
-# browser_profile = "default-release"   # optional
+# cookies_from_browser = "chrome"       # desktop only, not headless boxes
+# browser_profile = "Profile 1"         # optional; Chrome: "Default", "Profile 1"…
+#                                       # (see chrome://version); Firefox: "default-release"
 
 # Optional notifications (any Apprise URL: ntfy, Discord, Telegram, email…)
 # notify_url = "ntfy://ntfy.sh/my-topic"
@@ -35,11 +36,11 @@
 # data_dir = "~/.local/share/patronstash"
 
 # [[creator]]
-# name = "somecreator"          # vanity name or full URL
+# name = "somecreator"          # vanity name: patreon.com/somecreator
 # backfill = "all"
 
 # [[creator]]
-# name = "https://www.patreon.com/othercreator"
+# name = "othercreator"
 # backfill = "2024-01-01"
 
 # Passed straight to gallery-dl; overrides PatronStash's defaults.

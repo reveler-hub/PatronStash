@@ -68,13 +68,15 @@ download_dir = "/mnt/archive/patreon"
 - **`cookies_from_browser`** reads the cookies straight from a browser on the same machine, so it only works on a desktop. It supports Firefox, LibreWolf, Zen, Floorp, Chrome, Chromium, Brave, Edge, Opera, Vivaldi and Thorium. On Linux, Chromium-based browsers need a working system keyring (GNOME Keyring or KWallet); Firefox-family browsers need nothing extra.
 
   ```toml
-  cookies_from_browser = "firefox"
-  # browser_profile = "default-release"   # optional
+  cookies_from_browser = "chrome"
+  browser_profile = "Profile 1"   # optional
   ```
+
+  `browser_profile` picks which browser profile to read, which matters if you have more than one. For Chrome-family browsers it's a name like `Default` or `Profile 1`: open `chrome://version` in the profile that's logged in to Patreon and use the last part of **Profile Path**. For Firefox-family browsers it's usually `default-release`. Leave it out to use the default profile.
 
 If you set both, `cookies_file` wins.
 
-**4. Add creators.** Add one `[[creator]]` block per creator. `name` can be the creator's vanity name or their page URL. **Every creator needs a `backfill` line**, which decides how far back to go:
+**4. Add creators.** Add one `[[creator]]` block per creator. `name` is the creator's **vanity name**: the part after `patreon.com/` in their page URL, so `somecreator` for `patreon.com/somecreator`. Full URLs aren't accepted; if you paste one, `check` tells you the vanity name to use instead. **Every creator needs a `backfill` line**, which decides how far back to go:
 
 ```toml
 [[creator]]
@@ -82,7 +84,7 @@ name = "somecreator"
 backfill = "none"          # only posts published from now on
 
 [[creator]]
-name = "https://www.patreon.com/othercreator"
+name = "othercreator"
 backfill = "2024-01-01"    # everything since this date
 
 [[creator]]

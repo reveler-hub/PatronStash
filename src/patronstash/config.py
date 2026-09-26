@@ -144,27 +144,41 @@ class Config:
     warnings: list[str] = field(default_factory=list)
 
 
-def normalize_creator_name(value: str) -> str:
-    """Turn a vanity name or a creator URL into the bare vanity name."""
+def _vanity_from_url(value: str) -> str | None:
+    """The vanity name in a creator page URL, or None if there isn't one."""
+    if "://" not in value:
+        value = "https://" + value
+    parts = urlsplit(value)
+    if (parts.hostname or "") not in ("patreon.com", "www.patreon.com"):
+        return None
+    segments = [s for s in parts.path.split("/") if s]
+    if segments and segments[0] in ("c", "cw"):
+        segments = segments[1:]
+    if not segments or segments[0].lower() in NOT_CREATORS:
+        return None
+    return segments[0] if VANITY_RE.match(segments[0]) else None
+
+
+def validate_creator_name(value: str) -> str:
+    """Check that a creator name is a bare vanity name and return it.
+
+    URLs are rejected rather than converted, so the config stays easy to
+    read; the error names the vanity name to use instead.
+    """
     value = value.strip()
+    if VANITY_RE.match(value):
+        return value
     if "patreon.com" in value:
-        if "://" not in value:
-            value = "https://" + value
-        parts = urlsplit(value)
-        host = parts.hostname or ""
-        if host not in ("patreon.com", "www.patreon.com"):
-            raise ValueError(f"not a Patreon URL: {value!r}")
-        segments = [s for s in parts.path.split("/") if s]
-        if segments and segments[0] in ("c", "cw"):
-            segments = segments[1:]
-        if not segments or segments[0].lower() in NOT_CREATORS:
-            raise ValueError(f"not a creator page URL: {value!r}")
-        value = segments[0]
-    elif "/" in value or ":" in value:
-        raise ValueError(f"not a Patreon URL: {value!r}")
-    if not VANITY_RE.match(value):
-        raise ValueError(f"invalid creator name: {value!r}")
-    return value
+        vanity = _vanity_from_url(value)
+        if vanity:
+            raise ValueError(
+                f'use the vanity name "{vanity}" instead of the URL {value!r}'
+            )
+        raise ValueError(f"{value!r} is not a creator page URL")
+    raise ValueError(
+        f"invalid creator name {value!r}: use the vanity name from the creator's "
+        'page URL, e.g. "somecreator" for patreon.com/somecreator'
+    )
 
 
 def _path(value, key: str) -> Path:
@@ -229,7 +243,7 @@ def _parse_creators(entries, warnings: list[str]):
         if not isinstance(raw_name, str) or not raw_name.strip():
             raise ConfigError(f"creator #{number} has no 'name'")
         try:
-            name = normalize_creator_name(raw_name)
+            name = validate_creator_name(raw_name)
         except ValueError as exc:
             raise ConfigError(f"creator #{number}: {exc}") from None
 
