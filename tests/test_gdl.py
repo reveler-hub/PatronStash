@@ -1,6 +1,7 @@
 """gallery-dl integration, with Patreon replaced by a fake extractor."""
 
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -512,3 +513,19 @@ def test_lookup_unknown_creator():
 def test_lookup_http_error():
     with pytest.raises(LookupError, match="could not look up"):
         lookup_campaign_id("x", FakeApiExtractor(error=OSError("403 Forbidden")))
+
+
+def test_job_reports_posts_with_new_files(tmp_path, caplog):
+    from patronstash.progress import PostReporter
+
+    apply_gdl_config(build_gdl_config(make_config(tmp_path)))
+    FakePatreonExtractor.posts = FAKE_POSTS
+    extr = FakePatreonExtractor(re.match(FakePatreonExtractor.pattern, "fake:x"))
+    job = ArchiveJob(extr, stream=PostStream("artist"), reporter=PostReporter("artist"))
+    with caplog.at_level(logging.INFO, logger="patronstash"):
+        assert job.run() == 0
+    ours = [r.getMessage() for r in caplog.records if r.name == "patronstash"]
+    assert ours == [
+        "artist: 2024-05-06 Hello: World? — 2 files",
+        "artist: 2024-05-01 Untitled — 1 file",
+    ]

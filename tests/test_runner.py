@@ -220,3 +220,11 @@ def test_locked_posts_are_recorded(tmp_path, locked):
     cfg = make_config(tmp_path, [("a", "all")])
     do_run(cfg, FakeDownloader({"a": {"locked": locked}}))
     assert state(cfg, "a").last_locked == locked
+
+
+def test_each_creator_announces_itself(tmp_path, caplog):
+    cfg = make_config(tmp_path, [("a", "all"), ("b", "none")])
+    with caplog.at_level(logging.INFO, logger="patronstash"):
+        do_run(cfg)
+    assert "a: checking for new posts…" in caplog.messages
+    assert "b: checking for new posts…" in caplog.messages

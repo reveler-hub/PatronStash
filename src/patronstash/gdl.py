@@ -29,6 +29,7 @@ from gallery_dl.extractor.message import Message
 from gallery_dl.job import DownloadJob
 
 from .config import Config, Creator
+from .progress import PostReporter, ProgressBar
 from .transport import use_chrome_transport
 
 log = logging.getLogger("patronstash")
@@ -275,10 +276,23 @@ class ArchiveJob(DownloadJob):
     reports every finished file, downloads YouTube links only when they
     aren't public, and treats failed embeds and links as warnings."""
 
-    def __init__(self, url, parent=None, *, stream=None, on_file=None, probe_link=None):
+    def __init__(
+        self,
+        url,
+        parent=None,
+        *,
+        stream=None,
+        on_file=None,
+        probe_link=None,
+        reporter=None,
+        out=None,
+    ):
         DownloadJob.__init__(self, url, parent)
         self.stream = stream
         self.on_file = on_file
+        self.reporter = reporter
+        if out is not None:
+            self.out = out  # downloaders pick this up when they're created
         self.probe_link = probe_link or self._probe_link
         self._link_ytdl = None
         self.video_failures: list[str] = []
@@ -289,9 +303,19 @@ class ArchiveJob(DownloadJob):
             messages = self.stream.wrap(messages)
         return DownloadJob.dispatch(self, messages)
 
+    def handle_directory(self, kwdict):
+        if self.reporter is not None:
+            self.reporter.post_started(kwdict)
+        DownloadJob.handle_directory(self, kwdict)
+
+    def handle_finalize(self):
+        if self.reporter is not None:
+            self.reporter.finish_post()
+        DownloadJob.handle_finalize(self)
+
     def initialize(self, kwdict=None):
         DownloadJob.initialize(self, kwdict)
-        if self.on_file is not None:
+        if self.on_file is not None or self.reporter is not None:
             if not isinstance(self.hooks, collections.defaultdict):
                 self.hooks = collections.defaultdict(list, self.hooks or {})
             self.hooks["after"].append(self._file_done)
@@ -303,6 +327,10 @@ class ArchiveJob(DownloadJob):
         except OSError:
             size = 0
         date = kwdict.get("date")
+        if self.reporter is not None:
+            self.reporter.file_done()
+        if self.on_file is None:
+            return
         self.on_file(
             DownloadedFile(
                 post_id=str(kwdict.get("id")),
@@ -442,8 +470,17 @@ def run_creator(
 
     extr = gdl_extractor.find(f"https://www.patreon.com/id:{campaign_id}")
     use_chrome_transport(extr)
-    job = ArchiveJob(extr, stream=stream, on_file=file_done)
-    result.status = job.run()
+    # With -v, gallery-dl's own per-file output and progress are shown instead.
+    bar = ProgressBar(enabled=False if verbose else None)
+    job = ArchiveJob(
+        extr,
+        stream=stream,
+        on_file=file_done,
+        reporter=PostReporter(creator.name),
+        out=None if verbose else bar,
+    )
+    with bar:
+        result.status = job.run()
     result.counts = stream.counts
     result.video_failures = job.video_failures
     result.public_links_skipped = job.public_links_skipped

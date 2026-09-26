@@ -107,6 +107,7 @@ def _run(
             def record(f, name=creator.name):
                 stats.record_file(name, f.post_id, f.post_date, f.path, f.size, now())
 
+            log.info("%s: checking for new posts…", creator.name)
             try:
                 result = downloader(
                     cfg,

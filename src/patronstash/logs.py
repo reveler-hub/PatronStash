@@ -7,6 +7,8 @@ import logging.handlers
 import sys
 from pathlib import Path
 
+from .progress import clear_status_line
+
 LOG_MAX_BYTES = 5 * 1024 * 1024
 LOG_FILES = 5
 FILE_FORMAT = "%(asctime)s %(levelname)-7s [%(name)s] %(message)s"
@@ -42,12 +44,18 @@ class _ConsoleFormatter(logging.Formatter):
         return f"{prefix}{message}"
 
 
+class _ConsoleHandler(logging.StreamHandler):
+    def emit(self, record):
+        clear_status_line()  # don't print on top of a progress bar
+        super().emit(record)
+
+
 def setup_console(verbose: bool) -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     for handler in list(root.handlers):
         root.removeHandler(handler)
-    console = logging.StreamHandler(sys.stderr)
+    console = _ConsoleHandler(sys.stderr)
     console.addFilter(_ConsoleFilter(verbose))
     console.setFormatter(_ConsoleFormatter())
     root.addHandler(console)

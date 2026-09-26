@@ -180,8 +180,14 @@ Rules for the config:
   - *Why:* `gallery-dl`'s archive stores only IDs, with no sizes, dates or totals. Keeping one row per file also means future features won't need a data migration.
 - **Logging:**
   - a rotating `patronstash.log` in `data_dir` (5 files × 5 MB)
-  - quiet console output by default: a summary line per creator, plus warnings and errors
-  - `-v` for full detail
+  - console output by default (decided 2026-09-26, replacing "a summary line per creator"):
+    - a line when each creator starts ("checking for new posts…")
+    - one line per post that had new files
+    - a heartbeat every 50 posts checked during long backfills
+    - on a terminal only, a live progress bar for downloads that take more than a few seconds (videos, big attachments)
+    - the summary line per creator, plus warnings and errors
+    - *Why:* with only a summary line per creator, a run showed nothing at all for hours during a backfill or a big video, so users couldn't tell it was working. The post lines go to the log file too. The progress bar is left out under cron and systemd, where nobody is watching.
+  - `-v` for full detail: gallery-dl's own per-file output instead of the progress bar
   - *Why:* cron throws away output unless mail is set up, so a log file is the only reliable record on a headless box.
 - **Notifications:** optional, through [Apprise](https://github.com/caronc/apprise), configured with one `notify_url`. By default they're sent only on failure: expired login, a creator missing its `backfill` line, or a run error. Setting `notify_summary = true` also sends a summary after successful runs ("downloaded N new posts").
 

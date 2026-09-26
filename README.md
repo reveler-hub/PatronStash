@@ -118,6 +118,17 @@ Global options, accepted before or after the command:
 - `--config PATH` uses a different config file.
 - `-v` shows gallery-dl's full per-file output.
 
+While `run` works, it shows a line as it starts each creator, one line per post with new files, and the summary. In a terminal, big downloads such as videos also get a live progress bar:
+
+```
+login: logged in as YourName via cookies_from_browser (chrome, profile Default)
+somecreator: checking for new posts…
+  youtube-AbCdEfGhIjK.mkv  [######----]  61%  331.0 MB / 541.0 MB  4.2 MB/s
+somecreator: 2026-09-25 Photo set — 6 files
+```
+
+During a long backfill it also reports every 50 posts checked, so you can tell it's still working.
+
 ### What gets downloaded
 
 ```
