@@ -1,0 +1,47 @@
+# ── PatronStash config ─────────────────────────────────────────────
+# Add one [[creator]] block per creator. EVERY creator needs a
+# `backfill` line; a creator without one is skipped (with a warning).
+#
+#   backfill = "all"         download their ENTIRE post history
+#   backfill = "none"        only posts published from now on
+#   backfill = "2024-01-01"  everything since that date
+#
+# ⚠ "all" can mean thousands of posts and tens of GB (video especially).
+# ⚠ The first sync can take hours or days and span several runs.
+# ⚠ It sends many requests to Patreon; PatronStash waits between them,
+#   but very large backfills may still get throttled.
+#
+# Example:
+#   [[creator]]
+#   name = "somecreator"
+#   backfill = "none"
+#
+# Run `patronstash check` after editing to validate this file.
+# ───────────────────────────────────────────────────────────────────
+
+# REQUIRED: where downloads go. A backfill can be hundreds of GB, so pick
+# a disk with room to spare.
+# download_dir = "/mnt/archive/patreon"
+
+# Login: set one or both. If both are set, cookies_file wins.
+# cookies_file = "~/.config/patronstash/cookies.txt"
+# cookies_from_browser = "firefox"      # desktop only, not headless boxes
+# browser_profile = "default-release"   # optional
+
+# Optional notifications (any Apprise URL: ntfy, Discord, Telegram, email…)
+# notify_url = "ntfy://ntfy.sh/my-topic"
+# notify_summary = false                # true = also notify after successful runs
+
+# data_dir = "~/.local/share/patronstash"
+
+# [[creator]]
+# name = "somecreator"          # vanity name or full URL
+# backfill = "all"
+
+# [[creator]]
+# name = "https://www.patreon.com/othercreator"
+# backfill = "2024-01-01"
+
+# Passed straight to gallery-dl; overrides PatronStash's defaults.
+[gallery-dl]
+# e.g. directory / filename templates, sleep-request, video options…
