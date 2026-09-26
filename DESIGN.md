@@ -25,7 +25,7 @@ This document records the design decisions made before any code was written (202
 ## 2. Installation
 
 - The project is an installable package (`pyproject.toml`) that provides a `patronstash` command.
-- Users install it with `pipx install git+https://github.com/<owner>/PatronStash`, or with `pip install` inside a venv.
+- Users install it with `pipx install git+https://github.com/reveler-hub/PatronStash`, or with `pip install` inside a venv.
 - For development, use an editable install inside the repo's `.venv`.
 - It is not published to PyPI in v1 (see the roadmap).
 

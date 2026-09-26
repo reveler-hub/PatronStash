@@ -3,7 +3,7 @@
 ## Development setup
 
 ```sh
-git clone https://github.com/<owner>/PatronStash
+git clone https://github.com/reveler-hub/PatronStash
 cd PatronStash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
@@ -32,6 +32,14 @@ CI runs the tests on Python 3.11–3.14 and runs `ruff` on every push and pull r
 | `stats.py` | `stats.db`: one row per file, plus per-creator backfill state |
 | `check.py`, `status.py` | The `check` and `status` commands |
 | `lock.py`, `logs.py`, `notify.py`, `fmt.py` | Lock file, logging, Apprise, formatting |
+
+## Releasing
+
+1. Go through the live-test checklist below.
+2. Bump `version` in `pyproject.toml`. That is the only place the version is set; `patronstash --version` reads it from there.
+3. Commit, then tag the release (`git tag v0.1.1`) and push the tag.
+
+Users install from git, so bumping the version is what makes `pipx upgrade` pick up a release. If the version stays the same, pipx keeps the old code even when there are new commits.
 
 ## Live-test checklist (before each release)
 

@@ -21,14 +21,28 @@ Patreon's Cloudflare protection currently blocks gallery-dl on its own ([gallery
 With [pipx](https://pipx.pypa.io/) (recommended):
 
 ```sh
-pipx install git+https://github.com/<owner>/PatronStash
+pipx install git+https://github.com/reveler-hub/PatronStash
 ```
 
 Or with pip, inside a virtual environment:
 
 ```sh
 python3 -m venv ~/.venvs/patronstash
-~/.venvs/patronstash/bin/pip install git+https://github.com/<owner>/PatronStash
+~/.venvs/patronstash/bin/pip install git+https://github.com/reveler-hub/PatronStash
+```
+
+### Update
+
+```sh
+pipx upgrade --pip-args="--upgrade-strategy eager" patronstash
+```
+
+This installs the latest PatronStash release and also updates gallery-dl, yt-dlp and the other packages it uses. Those updates matter on their own: they're how fixes arrive when Patreon or YouTube change something. Plain `pipx upgrade patronstash` updates only PatronStash itself.
+
+If you installed with pip into a virtual environment:
+
+```sh
+~/.venvs/patronstash/bin/pip install --upgrade --upgrade-strategy eager git+https://github.com/reveler-hub/PatronStash
 ```
 
 ## Set up
@@ -229,7 +243,7 @@ Setting `directory`, `filename` or `postprocessors` replaces PatronStash's layou
 - **"login failed … has expired"**: log in to patreon.com in your browser again. If you use `cookies_file`, export the cookies again.
 - **Chrome/Brave cookies fail on Linux**: the keyring may be locked or missing. Use `cookies_file` instead.
 - **Video is skipped**: install `ffmpeg`, then run `patronstash check`.
-- **"Cloudflare challenge" or 403 errors**: Patreon's bot protection changed again. Update PatronStash and its dependencies (`pipx upgrade --include-injected patronstash` or `pip install -U patronstash gallery-dl curl_cffi`), and check the gallery-dl issue tracker.
+- **"Cloudflare challenge" or 403 errors**: Patreon's bot protection changed again. Update PatronStash and the packages it uses (see [Update](#update)), and check the gallery-dl issue tracker.
 - **"no Patreon creator named …"**: use the name from the creator's page URL (`patreon.com/<name>`), not their display name.
 
 ## License
