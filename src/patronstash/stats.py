@@ -32,10 +32,7 @@ CREATE TABLE IF NOT EXISTS creators (
     complete       INTEGER NOT NULL,  -- 1 once a clean pass reached the cutoff
     cutoff         TEXT,              -- oldest post date to fetch; NULL = all
     last_run       TEXT,
-    last_result    TEXT,
-    last_new_posts INTEGER,
-    last_new_files INTEGER,
-    last_locked    INTEGER
+    last_result    TEXT
 );
 """
 
@@ -56,9 +53,6 @@ class CreatorState:
     cutoff: datetime | None
     last_run: datetime | None = None
     last_result: str | None = None
-    last_new_posts: int | None = None
-    last_new_files: int | None = None
-    last_locked: int | None = None
 
 
 @dataclass
@@ -101,9 +95,6 @@ class StatsDB:
             cutoff=_dt(row["cutoff"]),
             last_run=_dt(row["last_run"]),
             last_result=row["last_result"],
-            last_new_posts=row["last_new_posts"],
-            last_new_files=row["last_new_files"],
-            last_locked=row["last_locked"],
         )
 
     def begin_creator(
@@ -141,24 +132,12 @@ class StatsDB:
         now: datetime,
         *,
         backfill_complete: bool,
-        new_posts: int = 0,
-        new_files: int = 0,
-        locked: int = 0,
     ) -> None:
         with self.conn:
             self.conn.execute(
                 "UPDATE creators SET last_run = ?, last_result = ?, "
-                "complete = MAX(complete, ?), last_new_posts = ?, "
-                "last_new_files = ?, last_locked = ? WHERE name = ?",
-                (
-                    _iso(now),
-                    result,
-                    int(backfill_complete),
-                    new_posts,
-                    new_files,
-                    locked,
-                    name,
-                ),
+                "complete = MAX(complete, ?) WHERE name = ?",
+                (_iso(now), result, int(backfill_complete), name),
             )
 
     # ── files ───────────────────────────────────────────────────────

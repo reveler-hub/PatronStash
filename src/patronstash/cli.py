@@ -56,20 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load(path: Path | None):
-    """Load the config, creating the commented template on first use."""
-    if path is None:
-        path = default_config_path()
-        if not path.exists():
-            write_template(path)
-            print(
-                f"Created a new config file at {path}\n"
-                "Edit it (set download_dir, a login and your creators), then run "
-                "`patronstash check`.",
-                file=sys.stderr,
-            )
-            return None
-    return load_config(path)
+def _create_template(path: Path) -> None:
+    write_template(path)
+    print(
+        f"Created a new config file at {path}\n"
+        "Edit it (set download_dir, a login and your creators), then run "
+        "`patronstash check`.",
+        file=sys.stderr,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,21 +77,20 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_console(args.verbose)
 
+    path = args.config or default_config_path()
+    if args.config is None and not path.exists():
+        _create_template(path)  # first use: nothing to run yet
+        return 2
+
     if args.command == "check":
         from .check import run_check
 
-        path = args.config or default_config_path()
-        if args.config is None and not path.exists():
-            _load(None)  # creates the template and says what to do next
-            return 2
         return run_check(path)
 
     try:
-        cfg = _load(args.config)
+        cfg = load_config(path)
     except ConfigError as exc:
         log.error("%s", exc)
-        return 2
-    if cfg is None:
         return 2
 
     if args.command == "status":

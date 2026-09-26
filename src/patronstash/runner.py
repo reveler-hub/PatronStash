@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import logging
-import shutil
 
-from . import gdl
+from . import __version__, gdl, updates
 from .config import Config
 from .fmt import human_size, plural, utcnow
 from .lock import AlreadyRunning, run_lock
 from .stats import StatsDB
 
 log = logging.getLogger("patronstash")
-
-
-def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
 
 
 def _summary_line(result: gdl.CreatorRun) -> str:
@@ -48,21 +43,50 @@ def run(
     now=utcnow,
     login_checker=gdl.check_login,
     downloader=gdl.run_creator,
-    ffmpeg_available=ffmpeg_available,
+    ffmpeg_available=gdl.ffmpeg_available,
+    fetch_tags=None,
 ) -> int:
     """Download everything new for every creator. Returns an exit code."""
     try:
         with run_lock(cfg.data_dir / "patronstash.lock"):
-            return _run(
-                cfg, notifier, verbose, now, login_checker, downloader, ffmpeg_available
+            code = _run(
+                cfg,
+                notifier=notifier,
+                verbose=verbose,
+                now=now,
+                login_checker=login_checker,
+                downloader=downloader,
+                ffmpeg_available=ffmpeg_available,
             )
+            report_update(cfg, notifier, now(), fetch_tags)
+            return code
     except AlreadyRunning:
         log.info("PatronStash is already running; exiting")
         return 0
+    finally:
+        gdl.close_api_extractors()
+
+
+def report_update(cfg: Config, notifier, now, fetch_tags=None) -> None:
+    """Say when a newer PatronStash is out; notify once per new version."""
+    if not cfg.update_check:
+        return
+    info = updates.check_for_update(
+        cfg.data_dir, __version__, now=now, fetch=fetch_tags
+    )
+    if info is None or not info.available:
+        return
+    log.info("%s", info.message())
+    if notifier.enabled and not updates.was_notified(cfg.data_dir, info.latest):
+        if notifier.send(
+            "PatronStash update available",
+            f"PatronStash {info.latest} is available (you have {info.current}).",
+        ):
+            updates.mark_notified(cfg.data_dir, info.latest)
 
 
 def _run(
-    cfg, notifier, verbose, now, login_checker, downloader, ffmpeg_available
+    cfg, *, notifier, verbose, now, login_checker, downloader, ffmpeg_available
 ) -> int:
     for warning in cfg.warnings:
         log.warning("config: %s", warning)
@@ -133,9 +157,6 @@ def _run(
                 "ok" if result.ok else "error",
                 now(),
                 backfill_complete=result.ok and not result.counts.videos_skipped,
-                new_posts=result.new_posts,
-                new_files=len(result.files),
-                locked=result.counts.locked,
             )
             if result.ok:
                 log.info("%s: %s", creator.name, _summary_line(result))

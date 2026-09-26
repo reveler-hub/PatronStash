@@ -191,6 +191,18 @@ Rules for the config:
   - *Why:* cron throws away output unless mail is set up, so a log file is the only reliable record on a headless box.
 - **Notifications:** optional, through [Apprise](https://github.com/caronc/apprise), configured with one `notify_url`. By default they're sent only on failure: expired login, a creator missing its `backfill` line, or a run error. Setting `notify_summary = true` also sends a summary after successful runs ("downloaded N new posts").
 
+### Update checks
+
+Decided 2026-09-27:
+
+- About once a day, `run` asks GitHub for the repository's release tags. `check` always asks straight away.
+- When a newer version exists, `run` prints the update command, and the line also goes to the log.
+- If `notify_url` is set, PatronStash sends one notification per new version.
+- It never updates itself.
+- The check is on by default; `update_check = false` turns it off. The docs say it contacts `api.github.com`.
+- If GitHub can't be reached, nothing is reported and the run carries on normally.
+- *Why:* PatronStash depends on fixes for Patreon, Cloudflare and YouTube changes. Most users run it on a timer and never look for updates, so without this they'd miss them.
+
 ## 8. Scheduling
 
 - PatronStash doesn't schedule itself. `patronstash run` does one pass and exits.

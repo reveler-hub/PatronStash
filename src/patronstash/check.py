@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import gdl
+from . import __version__, gdl, updates
 from .config import ConfigError, load_config
-from .fmt import plural
+from .fmt import plural, utcnow
 from .notify import Notifier
-from .runner import ffmpeg_available as default_ffmpeg_available
 
 OK, WARN, FAIL = "✅", "⚠", "❌"
 
@@ -18,9 +17,12 @@ def run_check(
     path: Path,
     *,
     login_checker=gdl.check_login,
-    ffmpeg_available=default_ffmpeg_available,
+    ffmpeg_available=gdl.ffmpeg_available,
     deno_available=gdl.deno_available,
     make_notifier=Notifier,
+    fetch_tags=None,
+    now=utcnow,
+    version=__version__,
     out=print,
 ) -> int:
     failed = False
@@ -38,11 +40,7 @@ def run_check(
     report(OK, f"Config parses: {cfg.path}")
 
     for warning in cfg.warnings:
-        if not any(key in warning for key in cfg.reserved_keys):
-            report(WARN, f"Config: {warning}")
-
-    for key in cfg.reserved_keys:
-        report(WARN, f"{key} is reserved by PatronStash and will be ignored; remove it")
+        report(WARN, f"Config: {warning}")
 
     if cfg.creators:
         report(OK, f"{plural(len(cfg.creators), 'creator')} with a backfill line")
@@ -62,7 +60,10 @@ def run_check(
             f"download_dir does not exist yet and will be created: {cfg.download_dir}",
         )
 
-    login = login_checker(cfg)
+    try:
+        login = login_checker(cfg)
+    finally:
+        gdl.close_api_extractors()
     report(OK if login.ok else FAIL, f"Login: {login.message}")
 
     if ffmpeg_available():
@@ -77,6 +78,19 @@ def run_check(
             WARN,
             "deno not found: YouTube videos may be limited to lower quality",
         )
+
+    if not cfg.update_check:
+        report(OK, "Update check: turned off (update_check = false)")
+    else:
+        info = updates.check_for_update(
+            cfg.data_dir, version, now=now(), force=True, fetch=fetch_tags
+        )
+        if info is None:
+            report(WARN, "Update check: couldn't reach GitHub to check for updates")
+        elif info.available:
+            report(WARN, info.message())
+        else:
+            report(OK, f"PatronStash {version} is the latest version")
 
     notifier = make_notifier(cfg.notify_url)
     if notifier.enabled:

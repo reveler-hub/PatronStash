@@ -4,8 +4,6 @@ import logging
 from datetime import date, datetime
 from pathlib import Path
 
-import pytest
-
 from patronstash import runner
 from patronstash.config import Backfill, Config, Creator, Login
 from patronstash.gdl import CreatorRun, DownloadedFile, LoginResult, StreamCounts
@@ -46,7 +44,7 @@ class FakeDownloader:
         outcome = self.outcomes.get(creator.name, {})
         if isinstance(outcome, Exception):
             raise outcome
-        result = CreatorRun(creator.name, status=outcome.get("status", 0))
+        result = CreatorRun(status=outcome.get("status", 0))
         for i, post_id in enumerate(outcome.get("posts", [])):
             f = DownloadedFile(str(post_id), datetime(2024, 1, 1), f"/x/{i}", 10)
             on_file(f)
@@ -71,7 +69,7 @@ def make_config(tmp_path, creators, missing=(), summary=False):
     )
 
 
-def do_run(cfg, downloader=None, login_ok=True, ffmpeg=True, notifier=None):
+def do_run(cfg, downloader=None, login_ok=True, ffmpeg=True, notifier=None, tags=None):
     notifier = notifier or FakeNotifier()
     downloader = downloader or FakeDownloader()
     code = runner.run(
@@ -84,6 +82,7 @@ def do_run(cfg, downloader=None, login_ok=True, ffmpeg=True, notifier=None):
         ),
         downloader=downloader,
         ffmpeg_available=lambda: ffmpeg,
+        fetch_tags=(lambda: tags) if tags is not None else None,
     )
     return code, notifier, downloader
 
@@ -215,11 +214,11 @@ def test_changed_backfill_restarts(tmp_path):
     assert dl.calls[0]["complete"] is False
 
 
-@pytest.mark.parametrize("locked", [0, 3])
-def test_locked_posts_are_recorded(tmp_path, locked):
+def test_locked_posts_are_in_the_summary_line(tmp_path, caplog):
     cfg = make_config(tmp_path, [("a", "all")])
-    do_run(cfg, FakeDownloader({"a": {"locked": locked}}))
-    assert state(cfg, "a").last_locked == locked
+    with caplog.at_level(logging.INFO, logger="patronstash"):
+        do_run(cfg, FakeDownloader({"a": {"locked": 3}}))
+    assert "a: nothing new; 3 locked posts skipped" in caplog.messages
 
 
 def test_each_creator_announces_itself(tmp_path, caplog):
@@ -228,3 +227,62 @@ def test_each_creator_announces_itself(tmp_path, caplog):
         do_run(cfg)
     assert "a: checking for new posts…" in caplog.messages
     assert "b: checking for new posts…" in caplog.messages
+
+
+# ── update check ───────────────────────────────────────────────────
+
+
+def test_new_version_is_announced_and_notified_once(tmp_path, caplog, monkeypatch):
+    monkeypatch.setattr("patronstash.runner.__version__", "0.1.3")
+    cfg = make_config(tmp_path, [("a", "none")])
+    with caplog.at_level(logging.INFO, logger="patronstash"):
+        _, notifier, _ = do_run(cfg, tags=["v0.1.4", "v0.1.3"])
+    assert any(
+        "PatronStash 0.1.4 is available (you have 0.1.3)" in m for m in caplog.messages
+    )
+    assert notifier.sent == [
+        (
+            "PatronStash update available",
+            "PatronStash 0.1.4 is available (you have 0.1.3).",
+        )
+    ]
+    _, notifier, _ = do_run(
+        cfg, tags=["v0.1.4"]
+    )  # same version: no second notification
+    assert notifier.sent == []
+
+
+def test_up_to_date_says_nothing(tmp_path, caplog, monkeypatch):
+    monkeypatch.setattr("patronstash.runner.__version__", "0.1.4")
+    cfg = make_config(tmp_path, [("a", "none")])
+    with caplog.at_level(logging.INFO, logger="patronstash"):
+        _, notifier, _ = do_run(cfg, tags=["v0.1.4"])
+    assert not any("available" in m for m in caplog.messages)
+    assert notifier.sent == []
+
+
+def test_update_check_can_be_turned_off(tmp_path, monkeypatch):
+    monkeypatch.setattr("patronstash.runner.__version__", "0.1.3")
+    cfg = make_config(tmp_path, [("a", "none")])
+    cfg.update_check = False
+
+    def must_not_fetch():
+        raise AssertionError("contacted GitHub")
+
+    code = runner.run(
+        cfg,
+        notifier=FakeNotifier(),
+        now=lambda: NOW,
+        login_checker=lambda cfg: LoginResult(True, "ok"),
+        downloader=FakeDownloader(),
+        ffmpeg_available=lambda: True,
+        fetch_tags=must_not_fetch,
+    )
+    assert code == 0
+
+
+def test_unreachable_github_never_fails_a_run(tmp_path, monkeypatch):
+    monkeypatch.setattr("patronstash.runner.__version__", "0.1.3")
+    cfg = make_config(tmp_path, [("a", "none")])
+    code, notifier, _ = do_run(cfg)  # conftest makes GitHub unreachable
+    assert code == 0 and notifier.sent == []

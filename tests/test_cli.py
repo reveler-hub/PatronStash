@@ -3,12 +3,6 @@ import pytest
 from patronstash.cli import main
 
 
-@pytest.fixture(autouse=True)
-def isolated_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-
-
 def test_no_command_shows_help_and_downloads_nothing(capsys, monkeypatch):
     import patronstash.runner
 
@@ -19,14 +13,14 @@ def test_no_command_shows_help_and_downloads_nothing(capsys, monkeypatch):
 
 def test_first_run_creates_template(tmp_path, capsys):
     assert main(["run"]) == 2
-    path = tmp_path / "config" / "patronstash" / "config.toml"
+    path = tmp_path / "xdg-config" / "patronstash" / "config.toml"
     assert path.exists()
     assert "Created a new config file" in capsys.readouterr().err
 
 
 def test_check_creates_template_too(tmp_path):
     assert main(["check"]) == 2
-    assert (tmp_path / "config" / "patronstash" / "config.toml").exists()
+    assert (tmp_path / "xdg-config" / "patronstash" / "config.toml").exists()
 
 
 def test_explicit_missing_config_is_an_error(tmp_path, capsys):

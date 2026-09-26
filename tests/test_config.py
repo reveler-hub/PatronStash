@@ -294,7 +294,7 @@ directory = ["{id}"]
         )
     )
     assert cfg.passthrough == {"sleep-request": [1.0, 2.0], "directory": ["{id}"]}
-    assert cfg.reserved_keys == []
+    assert cfg.warnings == []
 
 
 def test_reserved_keys_are_removed_and_reported(tmp_path):
@@ -313,11 +313,11 @@ cookies = "/other.txt"
         )
     )
     assert cfg.passthrough == {"sleep": 1, "patreon": {}}
-    assert sorted(cfg.reserved_keys) == [
-        "gallery-dl.archive",
-        "gallery-dl.patreon.cookies",
+    assert sorted(cfg.warnings) == [
+        "gallery-dl.archive is reserved by PatronStash and was ignored; remove it",
+        "gallery-dl.patreon.cookies is reserved by PatronStash and was ignored; "
+        "remove it",
     ]
-    assert any("archive" in w for w in cfg.warnings)
 
 
 # ── template ───────────────────────────────────────────────────────
@@ -346,4 +346,15 @@ def test_url_as_creator_name_is_a_config_error(tmp_path):
         + '[[creator]]\nname = "https://www.patreon.com/c/artist"\nbackfill = "all"\n'
     )
     with pytest.raises(ConfigError, match='creator #1: use the vanity name "artist"'):
+        load_config(write(tmp_path, text))
+
+
+def test_valid_sleep_request_forms(tmp_path):
+    for value in ("3", "[3, 5]", '"3-5"', "0"):
+        load_config(write(tmp_path, BASE + f"[gallery-dl]\nsleep-request = {value}\n"))
+
+
+def test_invalid_sleep_request_is_a_config_error(tmp_path):
+    text = BASE + '[gallery-dl.patreon]\nsleep-request = "fast"\n'
+    with pytest.raises(ConfigError, match="gallery-dl.patreon.sleep-request"):
         load_config(write(tmp_path, text))

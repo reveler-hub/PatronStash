@@ -16,6 +16,7 @@ from patronstash.gdl import (
     VIDEO_FORMAT,
     ArchiveJob,
     PostStream,
+    api_delay,
     apply_gdl_config,
     build_gdl_config,
     lookup_campaign_id,
@@ -45,7 +46,7 @@ def test_defaults(tmp_path):
     assert ex["base-directory"] == str(tmp_path / "dl")
     assert ex["archive"] == str(tmp_path / "data" / "archive.sqlite3")
     assert ex["cookies"] == "/c/cookies.txt"
-    assert ex["sleep-request"] == [3.0, 5.0]
+    assert ex["sleep-request"] == 0  # paced in transport.py instead
     assert ex["skip"] is True
     assert ex["directory"][0] == "{vanity}"
     assert s["output"]["mode"] is False
@@ -80,7 +81,8 @@ def test_passthrough_overrides_defaults(tmp_path):
         },
     )
     s = build_gdl_config(cfg, verbose=True)
-    assert s["extractor"]["sleep-request"] == 1.0
+    assert s["extractor"]["sleep-request"] == 0
+    assert api_delay(cfg) == 1.0
     assert s["extractor"]["directory"] == ["{id}"]
     assert s["extractor"]["patreon"] == {"files": ["images"]}
     assert s["downloader"]["ytdl"]["format"] == "best"
@@ -105,11 +107,19 @@ def test_reserved_keys_always_win(tmp_path):
         ({"order-posts": "desc"}, True),
         ({"order-posts": "asc"}, False),
         ({"patreon": {"order-posts": "reverse"}}, False),
+        ({"patreon": {"creator": {"order-posts": "asc"}}}, False),
+        ({"order-posts": "asc", "patreon": {"creator": {"order-posts": "desc"}}}, True),
+        ({"patreon": 1}, True),  # not a table: ignored rather than crashing
     ],
 )
 def test_post_order(tmp_path, passthrough, expected):
     s = build_gdl_config(make_config(tmp_path, passthrough))
-    assert posts_are_newest_first(s) is expected
+    assert posts_are_newest_first(s["extractor"]) is expected
+
+
+def test_early_stop_only_when_newest_first(tmp_path):
+    cfg = make_config(tmp_path, {"patreon": {"creator": {"order-posts": "asc"}}})
+    assert build_gdl_config(cfg, complete=True)["extractor"]["skip"] is True
 
 
 # ── PostStream ──────────────────────────────────────────────────────
@@ -133,37 +143,51 @@ def urls(stream, messages):
     return [(m[1], m[2]["id"]) for m in stream.wrap(messages) if m[0] == Message.Url]
 
 
-def test_stream_passes_posts_and_tags_vanity():
-    s = PostStream("artist")
-    out = list(s.wrap(files(post(1, D1), "https://a/1.jpg")))
-    assert out[0][2]["vanity"] == "artist"
-    assert s.counts.posts == 1
+def test_user_keywords_cannot_remove_vanity(tmp_path):
+    cfg = make_config(tmp_path, {"patreon": {"keywords": {"vanity": "x", "a": 1}}})
+    status, _ = run_fake(cfg, FAKE_POSTS)
+    assert status == 0
+    assert [p.name for p in (tmp_path / "dl").iterdir()] == ["artist"]
+
+
+def test_api_delay(tmp_path):
+    assert api_delay(make_config(tmp_path)) == (3.0, 5.0)
+    assert api_delay(make_config(tmp_path, {"sleep-request": "8-9"})) == "8-9"
+    cfg = make_config(
+        tmp_path,
+        {"sleep-request": 8, "patreon": {"creator": {"sleep-request": 2}}},
+    )
+    assert api_delay(cfg) == 2
+    # gallery-dl's own delay is off at every level, and the passthrough
+    # itself is left untouched for the next creator
+    ex = build_gdl_config(cfg)["extractor"]
+    assert ex["sleep-request"] == 0
+    assert ex["patreon"]["creator"]["sleep-request"] == 0
+    assert cfg.passthrough["patreon"] == {"creator": {"sleep-request": 2}}
 
 
 def test_stream_drops_locked_posts_and_counts_them():
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(
         post(1, D1, current_user_can_view=False), "https://a/locked.jpg"
     ) + files(post(2, D2), "https://a/2.jpg")
     out = list(s.wrap(msgs))
     assert [m[2]["id"] for m in out if m[0] == Message.Directory] == [2]
-    assert urls(PostStream("x"), msgs) == [("https://a/2.jpg", 2)]
+    assert urls(PostStream(), msgs) == [("https://a/2.jpg", 2)]
     assert s.counts.locked == 1
-    assert s.counts.posts == 1
 
 
 def test_stream_stops_at_cutoff_when_newest_first():
-    s = PostStream("artist", cutoff=datetime(2024, 1, 15))
+    s = PostStream(cutoff=datetime(2024, 1, 15))
     msgs = (
         files(post(1, D1), "u1") + files(post(2, D2), "u2") + files(post(3, D3), "u3")
     )
     msgs.append(("sentinel", "", {}))  # must never be reached
     assert urls(s, msgs) == [("u1", 1), ("u2", 2)]
-    assert s.counts.reached_cutoff is True
 
 
 def test_stream_skips_old_posts_when_oldest_first():
-    s = PostStream("artist", cutoff=datetime(2024, 1, 15), newest_first=False)
+    s = PostStream(cutoff=datetime(2024, 1, 15), newest_first=False)
     msgs = (
         files(post(3, D3), "u3") + files(post(2, D2), "u2") + files(post(1, D1), "u1")
     )
@@ -171,12 +195,12 @@ def test_stream_skips_old_posts_when_oldest_first():
 
 
 def test_stream_keeps_posts_without_a_date():
-    s = PostStream("artist", cutoff=datetime(2024, 1, 15))
+    s = PostStream(cutoff=datetime(2024, 1, 15))
     assert urls(s, files(post(1, None), "u1")) == [("u1", 1)]
 
 
 def test_stream_skips_video_without_ffmpeg():
-    s = PostStream("artist", allow_video=False)
+    s = PostStream(allow_video=False)
     msgs = files(post(1, D1), "https://a/1.jpg", "ytdl:https://stream.mux.com/x.m3u8")
     assert urls(s, msgs) == [("https://a/1.jpg", 1)]
     assert s.counts.videos_skipped == 1
@@ -184,7 +208,7 @@ def test_stream_skips_video_without_ffmpeg():
 
 def test_stream_adds_embed_after_post_files():
     embed = {"url": "https://www.youtube.com/watch?v=abc", "provider": "YouTube"}
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(
         post(1, D1, post_type="video_embed", embed=embed, _ytdl_manifest="hls"),
         "https://a/thumb.jpg",
@@ -202,20 +226,20 @@ def test_stream_adds_embed_after_post_files():
 
 def test_stream_embed_on_last_post():
     embed = {"url": "https://vimeo.com/1"}
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(post(1, D1, post_type="video_embed", embed=embed))
     assert urls(s, msgs) == [("ytdl:https://vimeo.com/1", 1)]
 
 
 def test_stream_ignores_link_post_embeds():
     embed = {"url": "https://example.com/article"}
-    s = PostStream("artist")
+    s = PostStream()
     assert urls(s, files(post(1, D1, post_type="link", embed=embed))) == []
 
 
 def test_stream_skips_embed_without_ffmpeg():
     embed = {"url": "https://vimeo.com/1"}
-    s = PostStream("artist", allow_video=False)
+    s = PostStream(allow_video=False)
     assert urls(s, files(post(1, D1, post_type="video_embed", embed=embed))) == []
     assert s.counts.videos_skipped == 1
 
@@ -253,7 +277,7 @@ def run_fake(cfg, posts, **stream_kw):
     extr = FakePatreonExtractor(re.match(FakePatreonExtractor.pattern, "fake:x"))
     found = []
     job = ArchiveJob(
-        extr, stream=PostStream("artist", **stream_kw), on_file=found.append
+        extr, vanity="artist", stream=PostStream(**stream_kw), on_file=found.append
     )
     return job.run(), found
 
@@ -354,7 +378,7 @@ CONTENT = (
 
 
 def test_stream_finds_youtube_links_in_text():
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(post(1, D1, content=CONTENT), "https://a/1.jpg")
     out = [m for m in s.wrap(msgs) if m[0] == Message.Url]
     assert [m[1] for m in out] == [
@@ -366,7 +390,7 @@ def test_stream_finds_youtube_links_in_text():
 
 
 def test_stream_link_fields():
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(post(1, D1, content=CONTENT))
     kw = next(m[2] for m in s.wrap(msgs) if m[0] == Message.Url)
     assert kw["type"] == "link"
@@ -376,7 +400,7 @@ def test_stream_link_fields():
 
 def test_stream_embedded_video_is_not_also_a_link():
     embed = {"url": "https://www.youtube.com/watch?v=PatronOnly1"}
-    s = PostStream("artist")
+    s = PostStream()
     msgs = files(
         post(
             1,
@@ -392,7 +416,7 @@ def test_stream_embedded_video_is_not_also_a_link():
 
 
 def test_stream_links_skipped_without_ffmpeg():
-    s = PostStream("artist", allow_video=False)
+    s = PostStream(allow_video=False)
     assert urls(s, files(post(1, D1, content=CONTENT))) == []
     assert s.counts.videos_skipped == 3
 
@@ -423,7 +447,11 @@ def run_links(cfg, posts, availability):
         return "instance", {"availability": availability}
 
     job = ArchiveJob(
-        extr, stream=PostStream("artist"), on_file=found.append, probe_link=probe
+        extr,
+        vanity="artist",
+        stream=PostStream(),
+        on_file=found.append,
+        probe_link=probe,
     )
     real_download = job.download
 
@@ -521,7 +549,9 @@ def test_job_reports_posts_with_new_files(tmp_path, caplog):
     apply_gdl_config(build_gdl_config(make_config(tmp_path)))
     FakePatreonExtractor.posts = FAKE_POSTS
     extr = FakePatreonExtractor(re.match(FakePatreonExtractor.pattern, "fake:x"))
-    job = ArchiveJob(extr, stream=PostStream("artist"), reporter=PostReporter("artist"))
+    job = ArchiveJob(
+        extr, vanity="artist", stream=PostStream(), reporter=PostReporter("artist")
+    )
     with caplog.at_level(logging.INFO, logger="patronstash"):
         assert job.run() == 0
     ours = [r.getMessage() for r in caplog.records if r.name == "patronstash"]
@@ -529,3 +559,36 @@ def test_job_reports_posts_with_new_files(tmp_path, caplog):
         "artist: 2024-05-06 Hello: World? — 2 files",
         "artist: 2024-05-01 Untitled — 1 file",
     ]
+
+
+def test_api_connection_is_shared_per_setup_and_closed(tmp_path, monkeypatch):
+    from patronstash import gdl
+
+    class FakeSession:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeExtr:
+        def __init__(self):
+            self.session = FakeSession()
+
+    monkeypatch.setattr(gdl.gdl_extractor, "find", lambda url: FakeExtr())
+    monkeypatch.setattr(gdl, "use_chrome_transport", lambda extr: None)
+    gdl.close_api_extractors()
+
+    cfg = make_config(tmp_path)
+    first = gdl._api_extractor(cfg)
+    assert gdl._api_extractor(cfg) is first  # login check and lookups share it
+    other_login = make_config(
+        tmp_path, login=Login("cookies_from_browser", browser="firefox")
+    )
+    assert gdl._api_extractor(other_login) is not first
+    other_options = make_config(tmp_path, {"timeout": 5})
+    assert gdl._api_extractor(other_options) is not first
+
+    gdl.close_api_extractors()
+    assert first.session.closed
+    assert gdl._api_extractor(cfg) is not first
+    gdl.close_api_extractors()

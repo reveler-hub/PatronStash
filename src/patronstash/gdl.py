@@ -13,6 +13,7 @@ otherwise read it from.
 from __future__ import annotations
 
 import collections
+import copy
 import html
 import logging
 import os
@@ -24,13 +25,14 @@ from datetime import datetime
 
 from gallery_dl import config as gdl_config
 from gallery_dl import extractor as gdl_extractor
+from gallery_dl import util as gdl_util
 from gallery_dl import ytdl as gdl_ytdl
 from gallery_dl.extractor.message import Message
 from gallery_dl.job import DownloadJob
 
 from .config import Config, Creator
 from .progress import PostReporter, ProgressBar
-from .transport import use_chrome_transport
+from .transport import DEFAULT_API_DELAY, set_api_delay, use_chrome_transport
 
 log = logging.getLogger("patronstash")
 
@@ -43,6 +45,9 @@ SKIP_ABORT_AFTER = 20
 ROOT_SECTIONS = ("downloader", "output", "cache", "postprocessor")
 
 ASCENDING_ORDERS = ("a", "asc", "r", "reverse")
+# gallery-dl reads an extractor option from these levels, deepest winning:
+# [gallery-dl], [gallery-dl.patreon] and [gallery-dl.patreon.creator].
+OPTION_LEVELS = ("patreon", "creator")
 API = "https://www.patreon.com/api/"
 CURRENT_USER_URL = API + "current_user?json-api-version=1.0"
 CAMPAIGN_URL = API + "campaigns?filter[vanity]={}&json-api-version=1.0"
@@ -63,19 +68,53 @@ NOT_PUBLIC = {"unlisted", "private", "needs_auth", "subscriber_only", "premium_o
 VIDEO_FORMAT = "bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/bv*+ba/b"
 
 
+def tool_available(name: str) -> bool:
+    """Whether an external program is on PATH."""
+    return shutil.which(name) is not None
+
+
+def ffmpeg_available() -> bool:
+    return tool_available("ffmpeg")
+
+
 def deno_available() -> bool:
-    return shutil.which("deno") is not None
+    return tool_available("deno")
 
 
-def _merge(base: dict, override: dict) -> dict:
-    """Recursively merge `override` into a copy of `base`."""
-    result = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = _merge(result[key], value)
-        else:
-            result[key] = value
-    return result
+def _post_date(kwdict: dict) -> datetime | None:
+    """A post's date; gallery-dl marks a missing one with a falsy datetime."""
+    date = kwdict.get("date")
+    return date if isinstance(date, datetime) and date else None
+
+
+def extractor_option(options: dict, key: str, default=None):
+    """Look up an extractor option the way gallery-dl does for a creator:
+    the deepest of the root, `patreon` and `patreon.creator` levels wins."""
+    value = options.get(key, default)
+    for level in OPTION_LEVELS:
+        options = options.get(level)
+        if not isinstance(options, dict):
+            break
+        value = options.get(key, value)
+    return value
+
+
+def _zero_sleep_request(options: dict) -> None:
+    """Turn off gallery-dl's own sleep-request at every level it's set."""
+    for key, value in options.items():
+        if key == "sleep-request":
+            options[key] = 0
+        elif isinstance(value, dict):
+            _zero_sleep_request(value)
+
+
+def api_delay(cfg: Config):
+    """The configured wait between API requests, in any gallery-dl form."""
+    return extractor_option(cfg.passthrough, "sleep-request", DEFAULT_API_DELAY)
+
+
+def posts_are_newest_first(options: dict) -> bool:
+    return extractor_option(options, "order-posts") not in ASCENDING_ORDERS
 
 
 def build_gdl_config(
@@ -90,9 +129,18 @@ def build_gdl_config(
     Priority, lowest first: PatronStash defaults, the [gallery-dl]
     passthrough, then the reserved keys PatronStash depends on.
 
+    `complete` (the creator's backfill is done) makes the run stop after
+    SKIP_ABORT_AFTER already-downloaded files, when posts come newest first.
+
     `youtube_solver` lets yt-dlp fetch its challenge-solver script from
     GitHub, which it runs with deno to unlock YouTube's full-quality formats.
     """
+    # A copy, because merging and the sleep-request handling below modify it.
+    passthrough = copy.deepcopy(cfg.passthrough)
+    root_part = {k: v for k, v in passthrough.items() if k in ROOT_SECTIONS}
+    extractor_part = {k: v for k, v in passthrough.items() if k not in ROOT_SECTIONS}
+    stop_early = complete and posts_are_newest_first(extractor_part)
+
     extractor = {
         "base-directory": str(cfg.download_dir),
         "directory": ["{vanity}", "{date:%Y-%m-%d} {title[:100]|'Untitled'} [{id}]"],
@@ -102,8 +150,7 @@ def build_gdl_config(
             "type == 'link'": "youtube-{link_id}.{extension}",
             "": "{num:>02}.{extension}",
         },
-        "sleep-request": [3.0, 5.0],
-        "skip": f"abort:{SKIP_ABORT_AFTER}" if complete else True,
+        "skip": f"abort:{SKIP_ABORT_AFTER}" if stop_early else True,
         "postprocessors": [
             {"name": "metadata", "event": "post", "filename": "post.json"},
             {
@@ -127,15 +174,17 @@ def build_gdl_config(
             "remote_components": ["ejs:github"]
         }
 
-    passthrough = cfg.passthrough
-    root_part = {k: v for k, v in passthrough.items() if k in ROOT_SECTIONS}
-    extractor_part = {k: v for k, v in passthrough.items() if k not in ROOT_SECTIONS}
-    result = _merge(result, root_part)
-    result["extractor"] = _merge(result["extractor"], extractor_part)
+    gdl_util.combine_dict(result, root_part)
+    gdl_util.combine_dict(extractor, extractor_part)
 
-    result["extractor"]["archive"] = str(cfg.data_dir / "archive.sqlite3")
+    # transport.py applies the API delay instead (see api_delay); gallery-dl's
+    # own would also slow down requests to Patreon's file server.
+    _zero_sleep_request(extractor)
+    extractor["sleep-request"] = 0
+
+    extractor["archive"] = str(cfg.data_dir / "archive.sqlite3")
     if cfg.login is not None:
-        result["extractor"]["cookies"] = cfg.login.gallery_dl_cookies()
+        extractor["cookies"] = cfg.login.gallery_dl_cookies()
     return result
 
 
@@ -145,12 +194,12 @@ def apply_gdl_config(settings: dict) -> None:
         gdl_config.set((), key, value)
 
 
-def posts_are_newest_first(settings: dict) -> bool:
-    extractor = settings.get("extractor", {})
-    order = extractor.get("patreon", {}).get(
-        "order-posts", extractor.get("order-posts")
-    )
-    return order not in ASCENDING_ORDERS
+def configure(cfg: Config, **options) -> dict:
+    """Build and apply the gallery-dl config, and set the API delay."""
+    settings = build_gdl_config(cfg, **options)
+    apply_gdl_config(settings)
+    set_api_delay(api_delay(cfg))
+    return settings
 
 
 # ── the message filter ──────────────────────────────────────────────
@@ -158,16 +207,13 @@ def posts_are_newest_first(settings: dict) -> bool:
 
 @dataclass
 class StreamCounts:
-    posts: int = 0
     locked: int = 0
     videos_skipped: int = 0
-    reached_cutoff: bool = False
 
 
 class PostStream:
     """Filters and extends the messages from gallery-dl's Patreon extractor.
 
-    - tags every post with the creator's vanity name (`{vanity}`)
     - drops locked posts entirely, so no folder is created for them
     - drops posts older than the backfill cutoff; when posts arrive newest
       first, the first older post ends the run for this creator
@@ -179,23 +225,19 @@ class PostStream:
 
     def __init__(
         self,
-        vanity: str,
         *,
         cutoff: datetime | None = None,
         newest_first: bool = True,
         allow_video: bool = True,
     ):
-        self.vanity = vanity
         self.cutoff = cutoff
         self.newest_first = newest_first
         self.allow_video = allow_video
         self.counts = StreamCounts()
 
     def _too_old(self, post: dict) -> bool:
-        date = post.get("date")
-        return bool(
-            self.cutoff and isinstance(date, datetime) and date and date < self.cutoff
-        )
+        date = _post_date(post)
+        return bool(self.cutoff and date and date < self.cutoff)
 
     def _videos(self, post: dict | None):
         """Downloads to add after a post's own files: embed, then links."""
@@ -235,15 +277,12 @@ class PostStream:
                 current = None
                 if self._too_old(kwdict):
                     if self.newest_first:
-                        self.counts.reached_cutoff = True
                         return
                     continue
                 if not kwdict.get("current_user_can_view", True):
                     self.counts.locked += 1
                     continue
-                kwdict["vanity"] = self.vanity
                 current = kwdict
-                self.counts.posts += 1
                 yield message
 
             elif kind == Message.Url:
@@ -286,8 +325,13 @@ class ArchiveJob(DownloadJob):
         probe_link=None,
         reporter=None,
         out=None,
+        vanity=None,
     ):
         DownloadJob.__init__(self, url, parent)
+        if vanity is not None:
+            # The `{vanity}` field of every post. The job's own keywords are
+            # applied after any the user configures, so this always wins.
+            self.kwdict["vanity"] = vanity
         self.stream = stream
         self.on_file = on_file
         self.reporter = reporter
@@ -326,7 +370,6 @@ class ArchiveJob(DownloadJob):
             size = os.path.getsize(pathfmt.realpath)
         except OSError:
             size = 0
-        date = kwdict.get("date")
         if self.reporter is not None:
             self.reporter.file_done()
         if self.on_file is None:
@@ -334,7 +377,7 @@ class ArchiveJob(DownloadJob):
         self.on_file(
             DownloadedFile(
                 post_id=str(kwdict.get("id")),
-                post_date=date if isinstance(date, datetime) and date else None,
+                post_date=_post_date(kwdict),
                 path=pathfmt.realpath,
                 size=size,
             )
@@ -357,21 +400,23 @@ class ArchiveJob(DownloadJob):
             self._video_failed(url, kwdict)
 
     def _video_failed(self, url, kwdict):
-        self.video_failures.append(url[5:])
+        video_url = url.removeprefix("ytdl:")
+        self.video_failures.append(video_url)
         log.warning(
             "post %s: could not download %s %s",
             kwdict.get("id"),
             kwdict["type"],
-            url[5:],
+            video_url,
         )
 
     def _handle_link(self, url, kwdict):
         if self.archive is not None and self.archive.check(kwdict):
             return DownloadJob.handle_url(self, url, kwdict)  # already have it
+        video_url = url.removeprefix("ytdl:")
         try:
-            ytdl_instance, info = self.probe_link(url[5:])
+            ytdl_instance, info = self.probe_link(video_url)
         except Exception as exc:
-            log.debug("probing %s: %s: %s", url[5:], exc.__class__.__name__, exc)
+            log.debug("probing %s: %s: %s", video_url, exc.__class__.__name__, exc)
             info = None
         if not info:
             return self._video_failed(url, kwdict)
@@ -384,7 +429,7 @@ class ArchiveJob(DownloadJob):
                 "post %s: skipping %s YouTube link %s",
                 kwdict.get("id"),
                 availability or "public",
-                url[5:],
+                video_url,
             )
             self.public_links_skipped += 1
             if self.archive is not None:
@@ -413,7 +458,6 @@ class ArchiveJob(DownloadJob):
 
 @dataclass
 class CreatorRun:
-    name: str
     status: int = 0
     files: list[DownloadedFile] = field(default_factory=list)
     counts: StreamCounts = field(default_factory=StreamCounts)
@@ -444,22 +488,20 @@ def run_creator(
     on_file=None,
 ) -> CreatorRun:
     """Download one creator. `on_file` is called for each finished file."""
-    settings = build_gdl_config(
+    settings = configure(
         cfg, complete=complete, verbose=verbose, youtube_solver=deno_available()
     )
-    apply_gdl_config(settings)
 
-    result = CreatorRun(creator.name)
+    result = CreatorRun()
     try:
-        campaign_id = lookup_campaign_id(creator.name)
+        campaign_id = lookup_campaign_id(creator.name, _api_extractor(cfg))
     except LookupError as exc:
         log.error("%s: %s", creator.name, exc)
         result.status = 1
         return result
     stream = PostStream(
-        creator.name,
         cutoff=cutoff,
-        newest_first=posts_are_newest_first(settings),
+        newest_first=posts_are_newest_first(settings["extractor"]),
         allow_video=allow_video,
     )
 
@@ -478,6 +520,7 @@ def run_creator(
         on_file=file_done,
         reporter=PostReporter(creator.name),
         out=None if verbose else bar,
+        vanity=creator.name,
     )
     with bar:
         result.status = job.run()
@@ -487,22 +530,36 @@ def run_creator(
     return result
 
 
-def _api_extractor():
-    """A gallery-dl Patreon extractor for API requests, using the current
-    gallery-dl config's cookies and the Chrome transport."""
-    extr = gdl_extractor.find("https://www.patreon.com/home")
-    with _quiet_cookie_warning():
-        use_chrome_transport(extr)
-    return extr
+_api_extractors: dict[str, object] = {}
 
 
-def lookup_campaign_id(vanity: str, extr=None) -> str:
+def _api_extractor(cfg: Config):
+    """A gallery-dl Patreon extractor for API requests, with the configured
+    cookies and the Chrome transport. The login check and every creator's
+    lookup in a run share it; close_api_extractors() ends it."""
+    login = cfg.login.gallery_dl_cookies() if cfg.login else None
+    key = repr((login, str(cfg.data_dir), cfg.passthrough))
+    if key not in _api_extractors:
+        extr = gdl_extractor.find("https://www.patreon.com/home")
+        with _quiet_cookie_warning():
+            use_chrome_transport(extr)
+        _api_extractors[key] = extr
+    return _api_extractors[key]
+
+
+def close_api_extractors() -> None:
+    """Close the shared API connections; call when a run or check ends."""
+    for extr in _api_extractors.values():
+        extr.session.close()
+    _api_extractors.clear()
+
+
+def lookup_campaign_id(vanity: str, extr) -> str:
     """Find a creator's campaign ID from their vanity name.
 
     gallery-dl would read it from the creator's page, but Cloudflare
     challenges that page even with the Chrome transport; the API isn't.
     """
-    extr = extr or _api_extractor()
     try:
         data = extr.request_json(CAMPAIGN_URL.format(vanity))
     except Exception as exc:
@@ -558,9 +615,9 @@ def check_login(cfg: Config) -> LoginResult:
 
     again = " and export cookies.txt again" if login.method == "cookies_file" else ""
 
-    apply_gdl_config(build_gdl_config(cfg))
+    configure(cfg)
     try:
-        extr = _api_extractor()
+        extr = _api_extractor(cfg)
         if not extr.cookies_check(("session_id",), subdomains=True):
             return LoginResult(
                 False,

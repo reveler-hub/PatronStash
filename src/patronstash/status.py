@@ -10,15 +10,12 @@ HEADERS = ("Creator", "Backfill", "Posts", "Files", "Size", "Last post", "Last r
 
 
 def _backfill_text(creator: Creator, state: CreatorState | None) -> str:
-    backfill = creator.backfill
-    if state is not None and state.backfill != str(backfill):
-        return f"{_setting(creator)}, restarts next run"
-    if backfill.mode == "none":
-        if state is None:
-            return "new posts only, not started"
-        return f"new posts only (from {state.cutoff:%Y-%m-%d})"
     if state is None:
         return f"{_setting(creator)}, not started"
+    if state.backfill != str(creator.backfill):
+        return f"{_setting(creator)}, restarts next run"
+    if creator.backfill.mode == "none":
+        return f"new posts only (from {state.cutoff:%Y-%m-%d})"
     return f"{_setting(creator)}, {'done' if state.complete else 'in progress'}"
 
 

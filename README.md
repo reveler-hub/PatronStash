@@ -37,7 +37,16 @@ python3 -m venv ~/.venvs/patronstash
 pipx upgrade --pip-args="--upgrade-strategy eager" patronstash
 ```
 
-This installs the latest PatronStash release and also updates gallery-dl, yt-dlp and the other packages it uses. Those updates matter on their own: they're how fixes arrive when Patreon or YouTube change something. Plain `pipx upgrade patronstash` updates only PatronStash itself.
+PatronStash tells you when a new version is out. About once a day it asks GitHub for the latest release, and `run` then prints a line like this:
+
+```
+PatronStash 0.1.4 is available (you have 0.1.3). Update with:
+  pipx upgrade --pip-args="--upgrade-strategy eager" patronstash
+```
+
+If notifications are set up, you also get one notification per new version. `patronstash check` always looks straight away. PatronStash never updates itself. The check contacts `api.github.com`, which sees your IP address; to turn it off, add `update_check = false` to the config.
+
+The upgrade command installs the latest PatronStash release and also updates gallery-dl, yt-dlp and the other packages it uses. Those updates matter on their own: they're how fixes arrive when Patreon or YouTube change something. Plain `pipx upgrade patronstash` updates only PatronStash itself.
 
 If you installed with pip into a virtual environment:
 

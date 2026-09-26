@@ -35,6 +35,10 @@
 
 # data_dir = "~/.local/share/patronstash"
 
+# PatronStash checks GitHub about once a day for a newer version and tells
+# you (and notifies once, if notify_url is set). It never updates itself.
+# update_check = false                  # turn the check off
+
 # [[creator]]
 # name = "somecreator"          # vanity name: patreon.com/somecreator
 # backfill = "all"

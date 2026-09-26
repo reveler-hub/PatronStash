@@ -36,6 +36,7 @@ TOP_LEVEL_KEYS = {
     "browser_profile",
     "notify_url",
     "notify_summary",
+    "update_check",
     "creator",
     "gallery-dl",
 }
@@ -140,8 +141,8 @@ class Config:
     creators: list[Creator]
     missing_backfill: list[str] = field(default_factory=list)
     passthrough: dict = field(default_factory=dict)
-    reserved_keys: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    update_check: bool = True
 
 
 def _vanity_from_url(value: str) -> str | None:
@@ -231,6 +232,23 @@ def _strip_reserved(table: dict, prefix: str, found: list[str]) -> dict:
     return result
 
 
+def _check_sleep_request(table: dict, prefix: str) -> None:
+    """Reject a sleep-request value that gallery-dl can't parse."""
+    from gallery_dl.util import build_duration_func
+
+    for key, value in table.items():
+        if key == "sleep-request":
+            try:
+                build_duration_func(value)
+            except (ValueError, TypeError):
+                raise ConfigError(
+                    f"{prefix}.sleep-request = {value!r} is not a valid delay; "
+                    'use seconds (3), a range ([3, 5]) or text ("3-5")'
+                ) from None
+        elif isinstance(value, dict):
+            _check_sleep_request(value, f"{prefix}.{key}")
+
+
 def _parse_creators(entries, warnings: list[str]):
     if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
         raise ConfigError("creators must be written as [[creator]] blocks")
@@ -294,6 +312,9 @@ def load_config(path: Path) -> Config:
     notify_summary = data.get("notify_summary", False)
     if not isinstance(notify_summary, bool):
         raise ConfigError("'notify_summary' must be true or false")
+    update_check = data.get("update_check", True)
+    if not isinstance(update_check, bool):
+        raise ConfigError("'update_check' must be true or false")
 
     creators, missing = _parse_creators(data.get("creator", []), warnings)
 
@@ -303,7 +324,8 @@ def load_config(path: Path) -> Config:
     reserved: list[str] = []
     passthrough = _strip_reserved(passthrough, "gallery-dl", reserved)
     for key in reserved:
-        warnings.append(f"{key} is reserved by PatronStash and was ignored")
+        warnings.append(f"{key} is reserved by PatronStash and was ignored; remove it")
+    _check_sleep_request(passthrough, "gallery-dl")
 
     return Config(
         path=path,
@@ -312,10 +334,10 @@ def load_config(path: Path) -> Config:
         login=login,
         notify_url=_optional_str(data, "notify_url"),
         notify_summary=notify_summary,
+        update_check=update_check,
         creators=creators,
         missing_backfill=missing,
         passthrough=passthrough,
-        reserved_keys=reserved,
         warnings=warnings,
     )
 

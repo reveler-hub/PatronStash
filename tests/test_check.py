@@ -30,7 +30,9 @@ class FakeNotifier:
         return self.ok
 
 
-def check(tmp_path, text, login_ok=True, ffmpeg=True, notify_ok=True, deno=True):
+def check(
+    tmp_path, text, login_ok=True, ffmpeg=True, notify_ok=True, deno=True, tags=None
+):
     path = tmp_path / "config.toml"
     path.write_text(text.replace("{dl}", str(tmp_path)))
     out = []
@@ -49,13 +51,15 @@ def check(tmp_path, text, login_ok=True, ffmpeg=True, notify_ok=True, deno=True)
         ffmpeg_available=lambda: ffmpeg,
         deno_available=lambda: deno,
         make_notifier=make_notifier,
+        fetch_tags=(lambda: tags) if tags is not None else None,
+        version="0.1.3",
         out=out.append,
     )
     return code, "\n".join(out), notifiers
 
 
 def test_all_good(tmp_path):
-    code, text, _ = check(tmp_path, GOOD)
+    code, text, _ = check(tmp_path, GOOD, tags=["v0.1.3"])
     assert code == 0
     assert "❌" not in text and "⚠" not in text
     assert "2 creators" in text
@@ -114,3 +118,26 @@ def test_missing_deno_warns(tmp_path):
     code, text, _ = check(tmp_path, GOOD, deno=False)
     assert code == 0
     assert "⚠" in text and "deno" in text
+
+
+def test_check_reports_a_new_version(tmp_path):
+    code, text, _ = check(tmp_path, GOOD, tags=["v0.1.4"])
+    assert code == 0
+    assert "⚠ PatronStash 0.1.4 is available (you have 0.1.3)" in text
+    assert "pipx upgrade" in text
+
+
+def test_check_reports_up_to_date(tmp_path):
+    _, text, _ = check(tmp_path, GOOD, tags=["v0.1.3"])
+    assert "✅ PatronStash 0.1.3 is the latest version" in text
+
+
+def test_check_when_github_is_unreachable(tmp_path):
+    code, text, _ = check(tmp_path, GOOD)
+    assert code == 0
+    assert "⚠ Update check: couldn't reach GitHub" in text
+
+
+def test_check_with_update_check_off(tmp_path):
+    _, text, _ = check(tmp_path, "update_check = false\n" + GOOD, tags=["v9.9.9"])
+    assert "✅ Update check: turned off" in text
