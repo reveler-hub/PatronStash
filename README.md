@@ -164,20 +164,9 @@ Once a creator's backfill is done, later runs stop when they reach posts that ar
 
 `patronstash watch` is the alternative to a timer: leave it running in a terminal, tmux or screen session, and it does a pass straight away and then one every 6 hours, showing everything on a full-screen dashboard:
 
-```
- PatronStash 0.1.4 — Patreon archive
- 40 creators • 1 active • 31,054 posts • 937.8 GB
+<img width="890" height="920" alt="TUI ScreenShot" src="https://github.com/user-attachments/assets/b228ecc9-8b79-448a-a4a6-e908a9986686" />
 
- Creator               Status             Posts       Size  Newest      Activity
- pixelmoth             ✓ Up to date       1,283    21.6 GB  2026-08-26  nothing new
- inkandembers          ↓ 17 files         1,344    74.6 GB  2026-09-27
- quietforge            ✓ 2 new              116     6.3 GB  2026-09-27  2 new posts, 9 files (41.2 MB)
- brambleworks          Waiting              380    21.0 GB  2026-09-06
- …
-──────────────────────────────────────────────────────────────────────────────── ↓ 32 more
- ↓ inkandembers  youtube-AbCdEfGhIjK.mkv  [#####-----]  48%  145.2 MB / 303.2 MB  19.8 MB/s
- pass running (2/40 creators) • r pass now • ↑↓ PgUp PgDn scroll • q quit
-```
+
 
 - **Keys:** `r` starts a pass now; ↑/↓, PgUp/PgDn and Home/End scroll; `q` quits.
 - **Interval:** `--every HOURS` changes it, e.g. `patronstash watch --every 3`.
