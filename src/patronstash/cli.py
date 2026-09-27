@@ -53,6 +53,19 @@ def build_parser() -> argparse.ArgumentParser:
         _global_options(
             commands.add_parser(name, help=text, description=text), suppress=True
         )
+    watch_text = (
+        "keep running: do a pass now and then every few hours, with a live "
+        "dashboard (r = pass now, q = quit)"
+    )
+    watch = commands.add_parser("watch", help=watch_text, description=watch_text)
+    _global_options(watch, suppress=True)
+    watch.add_argument(
+        "--every",
+        type=float,
+        default=6.0,
+        metavar="HOURS",
+        help="hours between passes (default: 6)",
+    )
     return parser
 
 
@@ -92,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         log.error("%s", exc)
         return 2
+
+    if args.command == "watch":
+        from .watch import run_watch
+
+        return run_watch(path, every_hours=args.every)
 
     if args.command == "status":
         from .stats import StatsDB

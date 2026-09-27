@@ -486,8 +486,14 @@ def run_creator(
     allow_video: bool,
     verbose: bool = False,
     on_file=None,
+    progress=None,
 ) -> CreatorRun:
-    """Download one creator. `on_file` is called for each finished file."""
+    """Download one creator. `on_file` is called for each finished file.
+
+    `progress` replaces the terminal progress bar: any object with
+    ProgressBar's methods (start, progress, success, skip, clear) and usable
+    as a context manager. `patronstash watch` passes its dashboard's.
+    """
     settings = configure(
         cfg, complete=complete, verbose=verbose, youtube_solver=deno_available()
     )
@@ -513,7 +519,11 @@ def run_creator(
     extr = gdl_extractor.find(f"https://www.patreon.com/id:{campaign_id}")
     use_chrome_transport(extr)
     # With -v, gallery-dl's own per-file output and progress are shown instead.
-    bar = ProgressBar(enabled=False if verbose else None)
+    bar = (
+        progress
+        if progress is not None
+        else ProgressBar(enabled=False if verbose else None)
+    )
     job = ArchiveJob(
         extr,
         stream=stream,

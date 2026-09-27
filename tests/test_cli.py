@@ -44,3 +44,22 @@ def test_invalid_config_exit_code(tmp_path, capsys):
     cfg.write_text("nonsense = = 1")
     assert main(["--config", str(cfg), "run"]) == 2
     assert "TOML" in capsys.readouterr().err
+
+
+def test_watch_command(tmp_path, monkeypatch):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(f'download_dir = "{tmp_path}"\n')
+    calls = []
+    monkeypatch.setattr(
+        "patronstash.watch.run_watch",
+        lambda path, every_hours: calls.append((path, every_hours)) or 0,
+    )
+    assert main(["watch", "--config", str(cfg), "--every", "2"]) == 0
+    assert calls == [(cfg, 2.0)]
+
+
+def test_watch_with_broken_config(tmp_path, capsys):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("nonsense = = 1")
+    assert main(["--config", str(cfg), "watch"]) == 2
+    assert "TOML" in capsys.readouterr().err

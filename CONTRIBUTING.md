@@ -27,11 +27,13 @@ CI runs the tests on Python 3.11–3.14 and runs `ruff` on every push and pull r
 |---|---|
 | `config.py` | Loads and validates `config.toml`, normalises creator names, picks the login method |
 | `gdl.py` | Everything that touches gallery-dl: its config, the post filter (locked posts, backfill cutoff, video, embeds, YouTube links), the download job, campaign lookup and the login check |
-| `transport.py` | The curl_cffi adapter that gets `www.patreon.com` requests past Cloudflare |
+| `transport.py` | The curl_cffi adapter that gets `www.patreon.com` requests past Cloudflare, and paces API requests |
+| `watch.py`, `tui.py` | `patronstash watch`: the pass loop and the state it shows (`watch.py`), and the curses dashboard (`tui.py`, whose `layout()` is testable without a terminal) |
+| `updates.py` | The daily check for a newer release on GitHub |
 | `runner.py` | `patronstash run`: lock, login check, one pass over the creators, notifications |
 | `stats.py` | `stats.db`: one row per file, plus per-creator backfill state |
 | `check.py`, `status.py` | The `check` and `status` commands |
-| `lock.py`, `logs.py`, `notify.py`, `fmt.py` | Lock file, logging, Apprise, formatting |
+| `lock.py`, `logs.py`, `notify.py`, `progress.py`, `fmt.py` | Lock file, logging, Apprise, `run`'s progress output, formatting |
 
 ## Releasing
 

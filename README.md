@@ -121,6 +121,7 @@ It downloads nothing. It prints a ✅ / ⚠ / ❌ line for each of these: the co
 | `patronstash run` | Does one pass over every creator and exits. Schedule this. |
 | `patronstash check` | Validates the setup without downloading anything. |
 | `patronstash status` | Shows one line per creator: backfill progress, posts, files, size on disk, the date of the newest post and the last run. |
+| `patronstash watch` | Keeps running: does a pass now and then every few hours, with a live dashboard. See [Watch mode](#watch-mode). |
 
 Global options, accepted before or after the command:
 
@@ -158,6 +159,32 @@ During a long backfill it also reports every 50 posts checked, so you can tell i
 PatronStash remembers what it has downloaded in a database in its data directory. Files are never downloaded twice, even if you move or rename them.
 
 Once a creator's backfill is done, later runs stop when they reach posts that are already archived. So if a creator adds an attachment to an *old* post, it won't be picked up. The same goes for a file that a creator replaces under the same ID.
+
+## Watch mode
+
+`patronstash watch` is the alternative to a timer: leave it running in a terminal, tmux or screen session, and it does a pass straight away and then one every 6 hours, showing everything on a full-screen dashboard:
+
+```
+ PatronStash 0.1.4 — Patreon archive
+ 40 creators • 1 active • 31,054 posts • 937.8 GB
+
+ Creator               Status             Posts       Size  Newest      Activity
+ pixelmoth             ✓ Up to date       1,283    21.6 GB  2026-08-26  nothing new
+ inkandembers          ↓ 17 files         1,344    74.6 GB  2026-09-27
+ quietforge            ✓ 2 new              116     6.3 GB  2026-09-27  2 new posts, 9 files (41.2 MB)
+ brambleworks          Waiting              380    21.0 GB  2026-09-06
+ …
+──────────────────────────────────────────────────────────────────────────────── ↓ 32 more
+ ↓ inkandembers  youtube-AbCdEfGhIjK.mkv  [#####-----]  48%  145.2 MB / 303.2 MB  19.8 MB/s
+ pass running (2/40 creators) • r pass now • ↑↓ PgUp PgDn scroll • q quit
+```
+
+- **Keys:** `r` starts a pass now; ↑/↓, PgUp/PgDn and Home/End scroll; `q` quits.
+- **Interval:** `--every HOURS` changes it, e.g. `patronstash watch --every 3`.
+- **Config changes** are picked up at the next pass, with no restart needed.
+- **Output:** the log still goes to `patronstash.log`. Anything the download tools print goes to `watch-output.log` in the data folder, so it never draws over the dashboard.
+
+Use either `watch` or a timer, not both. If a timer's run starts while `watch` is in a pass, it sees "already running" and skips.
 
 ## Schedule it
 

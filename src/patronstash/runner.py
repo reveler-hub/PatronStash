@@ -13,7 +13,7 @@ from .stats import StatsDB
 log = logging.getLogger("patronstash")
 
 
-def _summary_line(result: gdl.CreatorRun) -> str:
+def summary_line(result: gdl.CreatorRun) -> str:
     if result.files:
         text = (
             f"{plural(result.new_posts, 'new post')}, "
@@ -159,12 +159,12 @@ def _run(
                 backfill_complete=result.ok and not result.counts.videos_skipped,
             )
             if result.ok:
-                log.info("%s: %s", creator.name, _summary_line(result))
+                log.info("%s: %s", creator.name, summary_line(result))
             else:
                 log.error(
                     "%s: FAILED (%s); see the log for details",
                     creator.name,
-                    _summary_line(result),
+                    summary_line(result),
                 )
                 failures.append(f"{creator.name}: download errors (see the log)")
 

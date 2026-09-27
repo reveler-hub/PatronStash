@@ -37,6 +37,7 @@ This document records the design decisions made before any code was written (202
 | `patronstash run` | Does one pass over every creator and then exits. Cron and systemd call this. |
 | `patronstash check` | Downloads nothing. Validates the setup and prints a ✅ / ⚠ / ❌ list (details below). |
 | `patronstash status` | Shows one line per creator: backfill setting and progress, number of posts and files, size on disk, date of the last new post, and the time and result of the last run. |
+| `patronstash watch` | Keeps running and does a pass every few hours (`--every HOURS`, default 6), with a full-screen dashboard. Added 2026-09-27; see below. |
 
 Global options:
 
@@ -202,6 +203,20 @@ Decided 2026-09-27:
 - The check is on by default; `update_check = false` turns it off. The docs say it contacts `api.github.com`.
 - If GitHub can't be reached, nothing is reported and the run carries on normally.
 - *Why:* PatronStash depends on fixes for Patreon, Cloudflare and YouTube changes. Most users run it on a timer and never look for updates, so without this they'd miss them.
+
+### Watch mode
+
+Decided 2026-09-27:
+
+- `patronstash watch` keeps running and does a pass every few hours, with a curses dashboard. It suits people who keep a terminal or tmux session open rather than setting up a timer.
+- The dashboard is built for long creator lists:
+  - a totals line
+  - a scrollable table
+  - a pinned line for the file being downloaded
+  - columns that drop out on narrow terminals
+- The config is re-read before each pass.
+- The engine feeds the dashboard through three hooks: the downloader passed to `runner.run`, a `progress` object for `gdl.run_creator`, and a log handler. `run` and `watch` share all of the downloading code.
+- *Why:* with a long creator list, a timer run gives little sense of what's happening. The dashboard grew out of the maintainer's Raspberry Pi setup.
 
 ## 8. Scheduling
 
