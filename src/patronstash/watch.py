@@ -17,6 +17,7 @@ from pathlib import Path
 
 from . import gdl, runner
 from .config import Config, ConfigError, load_config
+from .fmt import utcnow
 from .notify import Notifier
 from .stats import StatsDB
 from .tui import ActiveDownload, CreatorRow, DashboardState
@@ -24,6 +25,9 @@ from .tui import ActiveDownload, CreatorRow, DashboardState
 log = logging.getLogger("patronstash")
 
 DEFAULT_EVERY_HOURS = 6.0
+# How often watch looks for a new release. GitHub itself is still asked at
+# most once a day (updates.py remembers the answer).
+UPDATE_CHECK_EVERY = 3600
 
 
 class _DashboardProgress:
@@ -63,7 +67,7 @@ class _DashboardLog(logging.Handler):
         message = record.getMessage().splitlines()[0]
         if " is available (you have " in message:
             available = message.split(" Update with:")[0]
-            self.watcher._set_notice(f"⬆ {available} See the README to update.")
+            self.watcher._set_update(f"⬆ {available} See the README to update.")
         elif "already running" in message:
             self.watcher._set_notice(
                 "Another PatronStash run is going; this pass was skipped"
@@ -74,12 +78,19 @@ class _DashboardLog(logging.Handler):
 
 class Watcher:
     def __init__(
-        self, config_path: Path, *, every: float, clock=time.time, run=runner.run
+        self,
+        config_path: Path,
+        *,
+        every: float,
+        clock=time.time,
+        run=runner.run,
+        fetch_tags=None,
     ):
         self.config_path = Path(config_path)
         self.every = every
         self.clock = clock
         self.run = run
+        self.fetch_tags = fetch_tags
         self.cfg: Config | None = None
         self._lock = threading.Lock()
         self._rows: dict[str, CreatorRow] = {}
@@ -88,7 +99,8 @@ class Watcher:
         self._done = 0
         self._total = 0
         self._running = False
-        self._notice = ""
+        self._notice = ""  # problems with the current pass; cleared each pass
+        self._update = ""  # a newer release; kept until watch restarts
         self._next_pass_at = 0.0  # the first pass runs straight away
         self._run_now = threading.Event()
 
@@ -234,6 +246,24 @@ class Watcher:
             self.run_pass()
             self._next_pass_at = self.clock() + self.every
 
+    def check_updates(self) -> None:
+        """Look for a newer release, whether or not a pass is running.
+
+        run_watch calls this at start-up and then every UPDATE_CHECK_EVERY
+        seconds from its own thread, so a long pass doesn't delay it. The
+        notice arrives through the log handler; the notification is sent at
+        most once per version, as with `run`.
+        """
+        cfg = self.cfg or self.reload()
+        if cfg is None:
+            return
+        try:
+            runner.report_update(
+                cfg, Notifier(cfg.notify_url), utcnow(), self.fetch_tags
+            )
+        except Exception as exc:  # never let the update check stop watch
+            log.debug("update check failed: %s", exc)
+
     def on_key(self, key: int) -> None:
         if key in (ord("r"), ord("R")):
             self._run_now.set()
@@ -251,7 +281,7 @@ class Watcher:
                 if running
                 else max(0, int(self._next_pass_at - self.clock())),
                 pass_progress=(self._done, self._total) if running else None,
-                notice=self._notice,
+                notice=" • ".join(n for n in (self._notice, self._update) if n),
             )
 
     # ── internals ───────────────────────────────────────────────────
@@ -275,6 +305,10 @@ class Watcher:
     def _set_notice(self, text: str) -> None:
         with self._lock:
             self._notice = text
+
+    def _set_update(self, text: str) -> None:
+        with self._lock:
+            self._update = text
 
     def _error(self, message: str) -> None:
         with self._lock:
@@ -318,7 +352,13 @@ def run_watch(config_path: Path, every_hours: float = DEFAULT_EVERY_HOURS) -> in
             watcher.tick()
             stop.wait(0.5)
 
+    def update_loop():
+        while not stop.is_set():
+            watcher.check_updates()
+            stop.wait(UPDATE_CHECK_EVERY)
+
     threading.Thread(target=loop, daemon=True).start()
+    threading.Thread(target=update_loop, daemon=True).start()
     try:
         run_dashboard(watcher.state, on_key=watcher.on_key)
     except KeyboardInterrupt:

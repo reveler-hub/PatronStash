@@ -234,3 +234,74 @@ def test_counts_go_up_as_files_finish(config_path, monkeypatch):
     w.run_pass()
     during = seen[0]
     assert (during.posts, during.size, during.newest) == (1, 800, "2026-09-27")
+
+
+@pytest.fixture
+def dashboard_log():
+    """Attach a watcher's log handler to the engine's logger during a test."""
+    attached = []
+    log = logging.getLogger("patronstash")
+    level = log.level
+    log.setLevel(logging.INFO)
+
+    def attach(watcher):
+        handler = watcher.log_handler()
+        log.addHandler(handler)
+        attached.append(handler)
+
+    yield attach
+    for handler in attached:
+        log.removeHandler(handler)
+    log.setLevel(level)
+
+
+def test_update_notice_shows_before_any_pass_finishes(
+    config_path, monkeypatch, dashboard_log
+):
+    monkeypatch.setattr("patronstash.runner.__version__", "0.1.3")
+    seen = []
+
+    def run_creator(cfg, creator, *, on_file, progress, **kwargs):
+        seen.append(w.state().notice)  # mid-pass
+        return CreatorRun()
+
+    monkeypatch.setattr(gdl, "run_creator", run_creator)
+    w = make_watcher(config_path, fetch_tags=lambda: ["v0.1.4", "v0.1.3"])
+    dashboard_log(w)
+    w.check_updates()  # what run_watch does at start-up
+    assert "0.1.4 is available (you have 0.1.3)" in w.state().notice
+    w.run_pass()  # a new pass clears pass problems, not the update notice
+    assert all("0.1.4 is available" in n for n in seen)
+    assert "0.1.4 is available" in w.state().notice
+
+
+def test_update_notice_sits_beside_other_problems(config_path, dashboard_log):
+    w = make_watcher(config_path)
+    dashboard_log(w)
+    w._set_update("⬆ PatronStash 0.1.4 is available")
+    logging.getLogger("patronstash").error("login failed: expired")
+    assert w.state().notice == (
+        "login failed: expired • ⬆ PatronStash 0.1.4 is available"
+    )
+
+
+def test_update_check_respects_update_check_false(config_path, dashboard_log):
+    config_path.write_text("update_check = false\n" + config_path.read_text())
+
+    def must_not_fetch():
+        raise AssertionError("contacted GitHub")
+
+    w = make_watcher(config_path, fetch_tags=must_not_fetch)
+    dashboard_log(w)
+    w.check_updates()
+    assert w.state().notice == ""
+
+
+def test_update_check_problems_never_stop_watch(config_path, dashboard_log):
+    def broken():
+        raise RuntimeError("boom")
+
+    w = make_watcher(config_path, fetch_tags=broken)
+    dashboard_log(w)
+    w.check_updates()  # GitHub unreachable / broken: quietly nothing
+    assert w.state().notice == ""
