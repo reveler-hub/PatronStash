@@ -13,7 +13,7 @@ Patreon's Cloudflare protection currently blocks gallery-dl on its own ([gallery
 - Linux or another Unix-like system
 - Python 3.11 or newer
 - `ffmpeg` for video. Without it, video is skipped and everything else still downloads.
-- Optional: [`deno`](https://deno.com/) for full-quality YouTube video. Without it, YouTube may only offer lower-quality formats.
+- Optional but recommended: [`deno`](https://deno.com/) for YouTube video. Without it, YouTube may only offer lower-quality formats, and sometimes refuses downloads altogether (HTTP 403).
 - A Patreon account that is logged in, in a browser
 
 ## Install
@@ -152,6 +152,7 @@ During a long backfill it also reports every 50 posts checked, so you can tell i
 - External video embeds (YouTube, Vimeo, SoundCloud…) are downloaded with yt-dlp as `embed.<ext>`.
 - **YouTube links in the post text** are downloaded as `youtube-<id>.<ext>`, but only if the video is **unlisted or private**, which is how creators usually share patron-only videos. Public videos are left alone.
 - Video is saved as **H.264** when available, because it plays on any device. yt-dlp's own default prefers AV1, which is about half the size but needs fairly recent hardware to play smoothly. To get AV1 instead, set `format = "bv*+ba/b"` under `[gallery-dl.downloader.ytdl]`.
+- If YouTube refuses downloads ("Sign in to confirm you're not a bot", HTTP 403), first make sure deno is installed. If it still happens, set `youtube_cookies_file` to a cookies.txt exported from youtube.com. This is opt-in, because yt-dlp warns that using an account with it can get that account flagged. PatronStash gives yt-dlp a copy, so your file is never changed.
 - If an embed or link can't be downloaded, for example because the video was removed, PatronStash logs a warning, carries on, and tries again on the next run.
 - **Locked posts** (tiers you don't pay for) are skipped: no folder is created, and the log counts them. If you upgrade your tier later, the next run downloads them.
 - Folders are named after the creator's vanity name, which doesn't change when they rename themselves.
@@ -212,11 +213,11 @@ WantedBy=timers.target
 
 Then:
 
-If `deno` lives outside the standard `PATH` (for example `~/.deno/bin`), add it to the service so YouTube video downloads in full quality:
+PatronStash finds deno on `PATH` or in deno's standard install folder (`~/.deno/bin`, or `$DENO_INSTALL/bin`), so a timer's minimal `PATH` is fine. Only if deno is somewhere else, add that folder to the service:
 
 ```ini
 [Service]
-Environment=PATH=%h/.deno/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/path/to/deno/folder:/usr/local/bin:/usr/bin:/bin
 ```
 
 ```sh

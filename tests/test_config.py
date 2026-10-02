@@ -358,3 +358,13 @@ def test_invalid_sleep_request_is_a_config_error(tmp_path):
     text = BASE + '[gallery-dl.patreon]\nsleep-request = "fast"\n'
     with pytest.raises(ConfigError, match="gallery-dl.patreon.sleep-request"):
         load_config(write(tmp_path, text))
+
+
+def test_youtube_cookies_file(tmp_path):
+    cfg = load_config(write(tmp_path, BASE + 'youtube_cookies_file = "~/yt.txt"\n'))
+    assert cfg.youtube_cookies_file == Path.home() / "yt.txt"
+    assert cfg.warnings == []
+
+
+def test_youtube_cookies_off_by_default(tmp_path):
+    assert load_config(write(tmp_path, BASE)).youtube_cookies_file is None

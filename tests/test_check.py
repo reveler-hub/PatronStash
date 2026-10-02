@@ -141,3 +141,15 @@ def test_check_when_github_is_unreachable(tmp_path):
 def test_check_with_update_check_off(tmp_path):
     _, text, _ = check(tmp_path, "update_check = false\n" + GOOD, tags=["v9.9.9"])
     assert "✅ Update check: turned off" in text
+
+
+def test_youtube_cookies_file_reported(tmp_path):
+    (tmp_path / "yt.txt").write_text("# Netscape HTTP Cookie File\n")
+    _, text, _ = check(tmp_path, f'youtube_cookies_file = "{tmp_path}/yt.txt"\n' + GOOD)
+    assert "✅ YouTube cookies:" in text
+
+
+def test_missing_youtube_cookies_file_fails_check(tmp_path):
+    code, text, _ = check(tmp_path, 'youtube_cookies_file = "/nope/yt.txt"\n' + GOOD)
+    assert code == 1
+    assert "❌ YouTube cookies file not found" in text

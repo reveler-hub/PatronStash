@@ -66,6 +66,12 @@ def run_check(
         gdl.close_api_extractors()
     report(OK if login.ok else FAIL, f"Login: {login.message}")
 
+    if cfg.youtube_cookies_file is not None:
+        if cfg.youtube_cookies_file.is_file():
+            report(OK, f"YouTube cookies: {cfg.youtube_cookies_file}")
+        else:
+            report(FAIL, f"YouTube cookies file not found: {cfg.youtube_cookies_file}")
+
     if ffmpeg_available():
         report(OK, "ffmpeg is installed")
     else:

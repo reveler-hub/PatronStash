@@ -22,6 +22,7 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from gallery_dl import config as gdl_config
 from gallery_dl import extractor as gdl_extractor
@@ -77,8 +78,28 @@ def ffmpeg_available() -> bool:
     return tool_available("ffmpeg")
 
 
+def deno_path() -> str | None:
+    """Where deno is: on PATH, or in its standard install folder.
+
+    Timers, cron and tmux sessions started at boot usually get a PATH
+    without ~/.deno/bin, where deno's installer puts it. Without deno,
+    yt-dlp can't solve YouTube's challenge and YouTube intermittently
+    refuses the video (HTTP 403).
+    """
+    if found := shutil.which("deno"):
+        return found
+    folders = [Path.home() / ".deno"]
+    if install := os.environ.get("DENO_INSTALL"):
+        folders.insert(0, Path(install))
+    for folder in folders:
+        deno = folder / "bin" / "deno"
+        if deno.is_file() and os.access(deno, os.X_OK):
+            return str(deno)
+    return None
+
+
 def deno_available() -> bool:
-    return tool_available("deno")
+    return deno_path() is not None
 
 
 def _post_date(kwdict: dict) -> datetime | None:
@@ -117,12 +138,38 @@ def posts_are_newest_first(options: dict) -> bool:
     return extractor_option(options, "order-posts") not in ASCENDING_ORDERS
 
 
+def _youtube_cookies_copy(cfg: Config) -> str | None:
+    """A fresh copy of the YouTube cookies for yt-dlp, or None.
+
+    yt-dlp writes cookies back to the file it's given, and gallery-dl adds
+    the Patreon cookies to its jar, so the user's own file is never handed
+    over; yt-dlp gets a copy in data_dir.
+    """
+    source = cfg.youtube_cookies_file
+    if source is None:
+        return None
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.warning(
+            "youtube_cookies_file can't be read (%s); YouTube videos are "
+            "downloaded without cookies",
+            exc.strerror or exc,
+        )
+        return None
+    copy = cfg.data_dir / "youtube-cookies.txt"
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    copy.write_text(text, encoding="utf-8")
+    copy.chmod(0o600)  # it holds a login, like the original
+    return str(copy)
+
+
 def build_gdl_config(
     cfg: Config,
     *,
     complete: bool = False,
     verbose: bool = False,
-    youtube_solver: bool = False,
+    deno: str | None = None,
 ) -> dict:
     """The full gallery-dl config for one creator's run.
 
@@ -132,8 +179,9 @@ def build_gdl_config(
     `complete` (the creator's backfill is done) makes the run stop after
     SKIP_ABORT_AFTER already-downloaded files, when posts come newest first.
 
-    `youtube_solver` lets yt-dlp fetch its challenge-solver script from
-    GitHub, which it runs with deno to unlock YouTube's full-quality formats.
+    `deno` (its path) lets yt-dlp fetch its challenge-solver script from
+    GitHub and run it with that deno, which YouTube needs for full-quality
+    formats and to stop refusing downloads.
     """
     # A copy, because merging and the sleep-request handling below modify it.
     passthrough = copy.deepcopy(cfg.passthrough)
@@ -169,10 +217,14 @@ def build_gdl_config(
         "cache": {"file": str(cfg.data_dir / "gallery-dl-cache.sqlite3")},
     }
 
-    if youtube_solver:
-        result["downloader"]["ytdl"]["raw-options"] = {
-            "remote_components": ["ejs:github"]
-        }
+    raw_options = {}
+    if deno:
+        raw_options["remote_components"] = ["ejs:github"]
+        raw_options["js_runtimes"] = {"deno": {"path": deno}}
+    if cookies := _youtube_cookies_copy(cfg):
+        raw_options["cookiefile"] = cookies
+    if raw_options:
+        result["downloader"]["ytdl"]["raw-options"] = raw_options
 
     gdl_util.combine_dict(result, root_part)
     gdl_util.combine_dict(extractor, extractor_part)
@@ -494,9 +546,7 @@ def run_creator(
     ProgressBar's methods (start, progress, success, skip, clear) and usable
     as a context manager. `patronstash watch` passes its dashboard's.
     """
-    settings = configure(
-        cfg, complete=complete, verbose=verbose, youtube_solver=deno_available()
-    )
+    settings = configure(cfg, complete=complete, verbose=verbose, deno=deno_path())
 
     result = CreatorRun()
     try:

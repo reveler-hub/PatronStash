@@ -35,6 +35,12 @@
 
 # data_dir = "~/.local/share/patronstash"
 
+# YouTube videos linked or embedded in posts are downloaded with yt-dlp. If
+# YouTube refuses them ("Sign in to confirm…", HTTP 403) even with deno
+# installed, give it YouTube cookies (a cookies.txt exported from youtube.com).
+# Opt-in: yt-dlp warns that using an account with it can get it flagged.
+# youtube_cookies_file = "~/.config/patronstash/youtube-cookies.txt"
+
 # PatronStash checks GitHub about once a day for a newer version and tells
 # you (and notifies once, if notify_url is set). It never updates itself.
 # update_check = false                  # turn the check off

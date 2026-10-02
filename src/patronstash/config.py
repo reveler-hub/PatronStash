@@ -37,6 +37,7 @@ TOP_LEVEL_KEYS = {
     "notify_url",
     "notify_summary",
     "update_check",
+    "youtube_cookies_file",
     "creator",
     "gallery-dl",
 }
@@ -143,6 +144,7 @@ class Config:
     passthrough: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     update_check: bool = True
+    youtube_cookies_file: Path | None = None
 
 
 def _vanity_from_url(value: str) -> str | None:
@@ -335,6 +337,9 @@ def load_config(path: Path) -> Config:
         notify_url=_optional_str(data, "notify_url"),
         notify_summary=notify_summary,
         update_check=update_check,
+        youtube_cookies_file=_path(data["youtube_cookies_file"], "youtube_cookies_file")
+        if "youtube_cookies_file" in data
+        else None,
         creators=creators,
         missing_backfill=missing,
         passthrough=passthrough,

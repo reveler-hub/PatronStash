@@ -10,6 +10,7 @@ import pytest
 from gallery_dl.extractor.common import Extractor
 from gallery_dl.extractor.message import Message
 
+from patronstash import gdl
 from patronstash.config import Config, Login
 from patronstash.gdl import (
     SKIP_ABORT_AFTER,
@@ -351,11 +352,53 @@ def test_job_second_run_downloads_nothing_even_if_files_moved(tmp_path):
 def test_youtube_solver_option(tmp_path):
     plain = build_gdl_config(make_config(tmp_path))
     assert "raw-options" not in plain["downloader"]["ytdl"]
-    solver = build_gdl_config(make_config(tmp_path), youtube_solver=True)
+    solver = build_gdl_config(make_config(tmp_path), deno="/opt/deno/bin/deno")
     assert solver["downloader"]["ytdl"]["raw-options"] == {
-        "remote_components": ["ejs:github"]
+        "remote_components": ["ejs:github"],
+        # the full path, so yt-dlp finds deno whatever PATH the run gets
+        "js_runtimes": {"deno": {"path": "/opt/deno/bin/deno"}},
     }
     assert solver["downloader"]["ytdl"]["format"] == VIDEO_FORMAT
+
+
+def _fake_deno(folder):
+    folder.mkdir(parents=True)
+    deno = folder / "deno"
+    deno.write_text("#!/bin/sh\n")
+    deno.chmod(0o755)
+    return str(deno)
+
+
+def test_deno_found_on_path(tmp_path, monkeypatch):
+    deno = _fake_deno(tmp_path / "bin")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    assert gdl.deno_path() == deno
+
+
+def test_deno_found_outside_path(tmp_path, monkeypatch):
+    # a timer, cron or tmux started at boot: PATH lacks ~/.deno/bin
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))  # no deno on PATH
+    monkeypatch.delenv("DENO_INSTALL", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    deno = _fake_deno(tmp_path / ".deno" / "bin")
+    assert gdl.deno_path() == deno
+    assert gdl.deno_available()
+
+
+def test_deno_install_variable_is_honoured(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))  # no deno on PATH
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("DENO_INSTALL", str(tmp_path / "custom"))
+    deno = _fake_deno(tmp_path / "custom" / "bin")
+    assert gdl.deno_path() == deno
+
+
+def test_no_deno_anywhere(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("DENO_INSTALL", raising=False)
+    assert gdl.deno_path() is None
+    assert not gdl.deno_available()
 
 
 def test_video_prefers_h264(tmp_path):
@@ -365,7 +408,7 @@ def test_video_prefers_h264(tmp_path):
 
 def test_passthrough_can_change_video_format(tmp_path):
     cfg = make_config(tmp_path, {"downloader": {"ytdl": {"format": "bv*+ba/b"}}})
-    ytdl = build_gdl_config(cfg, youtube_solver=True)["downloader"]["ytdl"]
+    ytdl = build_gdl_config(cfg, deno="/x/deno")["downloader"]["ytdl"]
     assert ytdl["format"] == "bv*+ba/b"
     assert "raw-options" in ytdl
 
@@ -592,3 +635,37 @@ def test_api_connection_is_shared_per_setup_and_closed(tmp_path, monkeypatch):
     assert first.session.closed
     assert gdl._api_extractor(cfg) is not first
     gdl.close_api_extractors()
+
+
+def test_youtube_cookies_are_given_to_yt_dlp_as_a_copy(tmp_path):
+    original = tmp_path / "yt_cookies.txt"
+    original.write_text(
+        "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tx\n"
+    )
+    cfg = make_config(tmp_path)
+    cfg.youtube_cookies_file = original
+    ytdl = build_gdl_config(cfg)["downloader"]["ytdl"]
+    copy = Path(ytdl["raw-options"]["cookiefile"])
+    # yt-dlp writes cookies back to its file (and gallery-dl hands it the
+    # Patreon cookies too), so it works on a copy in the data folder
+    assert copy.parent == cfg.data_dir and copy != original
+    assert copy.read_text() == original.read_text()
+    copy.write_text("changed by yt-dlp")
+    assert "SID" in original.read_text()
+
+
+def test_youtube_cookies_and_deno_together(tmp_path):
+    original = tmp_path / "yt.txt"
+    original.write_text("# Netscape HTTP Cookie File\n")
+    cfg = make_config(tmp_path)
+    cfg.youtube_cookies_file = original
+    raw = build_gdl_config(cfg, deno="/x/deno")["downloader"]["ytdl"]["raw-options"]
+    assert raw["js_runtimes"] == {"deno": {"path": "/x/deno"}}
+    assert "cookiefile" in raw
+
+
+def test_missing_youtube_cookies_file_is_skipped(tmp_path):
+    cfg = make_config(tmp_path)
+    cfg.youtube_cookies_file = tmp_path / "nope.txt"
+    ytdl = build_gdl_config(cfg)["downloader"]["ytdl"]
+    assert "cookiefile" not in ytdl.get("raw-options", {})
