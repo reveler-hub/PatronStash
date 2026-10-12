@@ -55,7 +55,7 @@ CAMPAIGN_URL = API + "campaigns?filter[vanity]={}&json-api-version=1.0"
 
 YOUTUBE_RE = re.compile(
     r"(?:https?://)?(?:www\.|m\.)?"
-    r"(?:youtube\.com/(?:watch\?(?:[^\s\"'<>]*?&)?v=|shorts/|live/|embed/)"
+    r"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^\s\"'<>]*?&)?v=|shorts/|live/|embed/)"
     r"|youtu\.be/)"
     r"([A-Za-z0-9_-]{11})"
 )
@@ -194,6 +194,7 @@ def build_gdl_config(
         "directory": ["{vanity}", "{date:%Y-%m-%d} {title[:100]|'Untitled'} [{id}]"],
         "filename": {
             "type == 'attachment'": "{filename}.{extension}",
+            "type == 'embed' and link_id": "youtube-{link_id}.{extension}",
             "type == 'embed'": "embed.{extension}",
             "type == 'link'": "youtube-{link_id}.{extension}",
             "": "{num:>02}.{extension}",
@@ -298,10 +299,18 @@ class PostStream:
         found = []
         embed = post.get("embed")
         embed_url = embed.get("url") if isinstance(embed, dict) else None
+        embed_ids = YOUTUBE_RE.findall(embed_url or "")
         if embed_url and str(post.get("post_type", "")).endswith("_embed"):
-            found.append(("embed", embed_url, {"num": 0, "file": embed}))
+            # num stays 0 so archive entries from earlier runs still match;
+            # link_id only picks the filename (youtube-<id>, like links).
+            extra = {
+                "num": 0,
+                "file": embed,
+                "link_id": embed_ids[0] if embed_ids else "",
+            }
+            found.append(("embed", embed_url, extra))
 
-        seen = set(YOUTUBE_RE.findall(embed_url or ""))
+        seen = set(embed_ids)
         for video_id in YOUTUBE_RE.findall(html.unescape(post.get("content") or "")):
             if video_id not in seen:
                 seen.add(video_id)

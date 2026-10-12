@@ -16,6 +16,7 @@ which don't need it, so PatronStash turns that off and paces here.
 
 from __future__ import annotations
 
+import io
 import time
 from http.cookiejar import CookieJar
 
@@ -84,6 +85,19 @@ def _timeout(timeout):
     return timeout
 
 
+class _BufferedRaw(io.BytesIO):
+    """Stands in for `Response.raw`, which the adapter can't provide.
+
+    gallery-dl's file downloader reads `response.raw.chunked` to decide how
+    to peek at a file's first bytes. The adapter has already read the whole
+    body into memory, so it is never chunked. Without this, files served
+    from www.patreon.com itself (/media-u/ URLs) crash the downloader with
+    "'NoneType' object has no attribute 'chunked'".
+    """
+
+    chunked = False
+
+
 class ChromeAdapter(BaseAdapter):
     """A requests transport adapter that sends requests through curl_cffi.
 
@@ -142,6 +156,7 @@ class ChromeAdapter(BaseAdapter):
         result.url = request.url
         result.encoding = requests.utils.get_encoding_from_headers(result.headers)
         result.request = request
+        result.raw = _BufferedRaw(response.content)
         result.connection = self
         return result
 

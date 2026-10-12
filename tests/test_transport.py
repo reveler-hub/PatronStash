@@ -104,6 +104,15 @@ def test_patreon_requests_go_through_curl():
     assert kw["allow_redirects"] is False
 
 
+def test_response_has_a_raw_for_gallerydl_downloads():
+    # gallery-dl's http downloader reads response.raw.chunked on file downloads.
+    fake = FakeCurlSession(FakeCurlResponse(200, b"\xff\xd8\xff\xe0jpegdata"))
+    r = session_with(fake).get("https://www.patreon.com/media-u/v3/1", stream=True)
+    assert r.raw.chunked is False
+    assert b"".join(r.iter_content(16)) == b"\xff\xd8\xff\xe0jpegdata"
+    r.close()
+
+
 def test_error_status_is_passed_through():
     fake = FakeCurlSession(FakeCurlResponse(403, b'{"errors": []}'))
     r = session_with(fake).get("https://www.patreon.com/x")

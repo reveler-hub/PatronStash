@@ -225,6 +225,23 @@ def test_stream_adds_embed_after_post_files():
     assert "_ytdl_manifest" not in kw
 
 
+def test_stream_youtube_embed_gets_the_youtube_id():
+    embed = {"url": "https://www.youtube.com/watch?v=PatronOnly1"}
+    s = PostStream()
+    msgs = files(post(1, D1, post_type="video_embed", embed=embed), "https://a/1.jpg")
+    kw = [m[2] for m in s.wrap(msgs) if m[0] == Message.Url][-1]
+    assert kw["type"] == "embed" and kw["num"] == 0
+    assert kw["link_id"] == "PatronOnly1"
+
+
+def test_stream_other_embed_has_no_link_id():
+    embed = {"url": "https://vimeo.com/1"}
+    s = PostStream()
+    msgs = files(post(1, D1, post_type="video_embed", embed=embed), "https://a/1.jpg")
+    kw = [m[2] for m in s.wrap(msgs) if m[0] == Message.Url][-1]
+    assert kw["link_id"] == ""
+
+
 def test_stream_embed_on_last_post():
     embed = {"url": "https://vimeo.com/1"}
     s = PostStream()
@@ -429,6 +446,20 @@ def test_stream_finds_youtube_links_in_text():
         "ytdl:https://www.youtube.com/watch?v=PatronOnly1",
         "ytdl:https://www.youtube.com/watch?v=AAAAAAAAAAA",
         "ytdl:https://www.youtube.com/watch?v=BBBBBBBBBBB",
+    ]
+
+
+def test_stream_finds_youtube_nocookie_iframe():
+    s = PostStream()
+    iframe = (
+        '<iframe src="https://www.youtube-nocookie.com/embed/NoCookie111?autoplay=1"'
+        ' width="100%"></iframe>'
+    )
+    msgs = files(post(1, D1, content=iframe), "https://a/1.jpg")
+    out = [m[1] for m in s.wrap(msgs) if m[0] == Message.Url]
+    assert out == [
+        "https://a/1.jpg",
+        "ytdl:https://www.youtube.com/watch?v=NoCookie111",
     ]
 
 
